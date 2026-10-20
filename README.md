@@ -199,14 +199,16 @@ flowchart LR
 `core/review/engine.jac` spawns the `ReviewRun` walker on a fresh `Review`. Its `Review` entry ability ingests, triages, and plans; its `FileChange` entry ability fans each file out to a `flow` worker; its `Review` exit ability, which fires after every file has been visited, does the rest. Each stage is committed as it finishes, so every open screen follows along.
 
 ```mermaid
-flowchart LR
-    A[1 Ingest<br/><sub>git diff → typed objects</sub>] --> B[2 Triage<br/><sub>deterministic risk</sub>]
-    B --> C[3 Plan<br/><sub>by llm</sub>]
-    C --> D[4 Specialist lenses<br/><sub>parallel by llm + tools</sub>]
-    D --> E[5 Cross-file<br/><sub>by llm + grep</sub>]
-    E --> F[6 Investigate<br/><sub>walker picks related code</sub>]
-    F --> G[7 Verify<br/><sub>adversarial by llm</sub>]
-    G --> H[8 Synthesize<br/><sub>verdict</sub>]
+flowchart TB
+    subgraph S1[" "]
+        direction LR
+        A["1 · Ingest<br/>git diff → typed objects"] --> B["2 · Triage<br/>deterministic risk"] --> C["3 · Plan<br/>by llm"] --> D["4 · Specialist lenses<br/>parallel, with tools"]
+    end
+    subgraph S2[" "]
+        direction LR
+        E["5 · Cross-file<br/>by llm + grep"] --> F["6 · Investigate<br/>walker picks related code"] --> G["7 · Verify<br/>adversarial by llm"] --> H["8 · Synthesize<br/>verdict"]
+    end
+    D --> E
 ```
 
 1. **Ingest.** `git diff base...head` (or the worktree, or `gh pr diff`) is parsed into `FileDiff` / `Hunk` / `DiffLine` objects, including quoted and space-containing paths. GitHub PRs are fetched into `refs/diffwalker/pr/<n>` so reviewers read the PR's actual code.
