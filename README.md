@@ -147,13 +147,13 @@ Charts, tables, and Mermaid diagrams that Copilot renders can be pinned. They pe
 
 `mobile/` is a real React Native app written with Jac's mobUI (`View`, `Text`, `Pressable`): sign in, inbox, review with the live pipeline and findings, insights, and its own Copilot, whose navigation moves the phone's tabs. It talks to the same server and the same graph, so resolving a finding on the phone updates the web review.
 
-<!--PENDING-MOBILE <p align="center"><img src="docs/screenshots/mobile.png" alt="Three mobile screens: the pull request inbox, a review with findings, and the Copilot tab" width="100%"/></p> PENDING-MOBILE-->
+<p align="center"><img src="docs/screenshots/mobile.png" alt="Three mobile screens: the pull request inbox, a review with findings, and the Copilot tab" width="100%"/></p>
 
 ### Command line
 
 The CLI runs the same engine in-process against any repository, with live stage progress, per-stage spend, and an exit code of 1 when changes are requested (useful in hooks and CI). With `--live` it runs on a server instead, and any browser you have open on that server follows along.
 
-<!--PENDING-CLI <img src="docs/screenshots/cli.png" alt="Terminal: diffwalker review of the refunds branch with stage progress, drafts, verifier results, per-stage spend, and findings" width="100%"/> PENDING-CLI-->
+<img src="docs/screenshots/cli.png" alt="Terminal: diffwalker review of the refunds branch with stage progress, drafts, verifier results, per-stage spend, and findings" width="100%"/>
 
 ```bash
 jac run cli -- repo                          # headline facts and 90-day stats
@@ -172,7 +172,6 @@ jac run cli -- --server http://localhost:8001 ask --live "open the riskiest PR"
 
 The app documents itself: animated diagrams of the architecture, the persistent graph and the walker that traverses it, the review pipeline, and one Copilot turn step by step, each paired with the real source that implements it, pulled live from the running server. The mobile app is embedded in a phone frame on the same page.
 
-<!--PENDING-BUILT
 <table>
 <tr>
 <td width="50%"><img src="docs/screenshots/built-architecture.png" alt="Architecture diagram: three client apps, the Jac server modules, the model provider, the graph store, and git"/></td>
@@ -183,7 +182,6 @@ The app documents itself: animated diagrams of the architecture, the persistent 
 <td><img src="docs/screenshots/built-phone.png" alt="The live mobile app embedded in a phone frame"/></td>
 </tr>
 </table>
-PENDING-BUILT-->
 
 ## How a review works
 
