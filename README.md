@@ -187,27 +187,11 @@ The app documents itself: animated diagrams of the architecture, the persistent 
 
 A review is a `Review` node with the pipeline's own graph under it:
 
-```mermaid
-flowchart LR
-    R[Review] -->|Covers| F1[FileChange]
-    R -->|Covers| F2[FileChange]
-    F1 -->|Raised| X1[Finding]
-    F1 -->|CalledFrom / TestedBy / ChangesWith| C1[CodeRef]
-    F2 -->|Raised| X2[Finding]
-```
+<img src="docs/media/diagram-graph.svg" width="100%" alt="A Review node covers FileChange nodes, which raise Findings and link to CodeRefs; the Investigate walker visits the CodeRefs the model picks"/>
 
 `core/review/engine.jac` spawns the `ReviewRun` walker on a fresh `Review`. Its `Review` entry ability ingests, triages, and plans; its `FileChange` entry ability fans each file out to a `flow` worker; its `Review` exit ability, which fires after every file has been visited, does the rest. Each stage is committed as it finishes, so every open screen follows along.
 
-```mermaid
-flowchart LR
-    A[Ingest] --> B[Triage] --> C[Plan] --> D[Lenses] --> E[Cross-file] --> F[Investigate] --> G[Verify] --> H[Synthesize]
-    classDef llm fill:#2a2540,stroke:#7c5cff,color:#ece9f7
-    classDef det fill:#12302a,stroke:#1baf7a,color:#e6f5ef
-    class A,B det
-    class C,D,E,F,G,H llm
-```
-
-<sub>Green stages are deterministic Jac; violet stages call the model through typed `by llm()` functions.</sub>
+<img src="docs/media/diagram-pipeline.svg" width="100%" alt="Eight-stage pipeline: ingest and triage are deterministic; plan, parallel lenses, cross-file, investigate, verify and synthesize are typed LLM calls; the verifier drops false positives"/>
 
 1. **Ingest.** `git diff base...head` (or the worktree, or `gh pr diff`) is parsed into `FileDiff` / `Hunk` / `DiffLine` objects, including quoted and space-containing paths. GitHub PRs are fetched into `refs/diffwalker/pr/<n>` so reviewers read the PR's actual code.
 2. **Triage.** A deterministic 0–100 risk per file from size, the repository's history hotspots, sensitive paths, new branching, missing tests, and word-bounded patterns for secrets, `eval`, `shell=True` and friends, plus `CodeRef` nodes for each file's callers, tests, and co-changing files.
@@ -231,22 +215,7 @@ Typed outputs re-ask the model on a malformed reply. Telemetry is billed per rev
 | Change review state | `review_pull_request`, `post_comment`, `update_finding`, `reply_to_finding`, `list_findings`, `export_review`, `publish_to_github` |
 | Render insights | `render_chart`, `render_table`, `render_diagram` (cards that pin to the board) |
 
-```mermaid
-sequenceDiagram
-    participant Pane as Copilot pane
-    participant API as copilot_stream
-    participant Agent as by llm() ReAct loop
-    participant Tools
-    participant Bus as live bus
-    participant Shell as App shell
-    Pane->>API: message + what you are looking at (SSE)
-    API->>Agent: run the turn
-    Agent->>Tools: tool call (e.g. focus_file)
-    Tools->>Bus: ui event, tagged with your session
-    Bus-->>Shell: SSE event
-    Shell->>Shell: navigate / scroll / filter / toast
-    Agent-->>Pane: tool calls, cards, streamed answer
-```
+<img src="docs/media/diagram-copilot.svg" width="100%" alt="One Copilot turn: the pane streams a message, a worker runs the tool loop, UI tools emit session-tagged events the app shell applies, writes commit through the request context, and the answer streams back"/>
 
 - Writes go through `core/actions.jac`, the same functions the buttons call, so Copilot can do anything you can.
 - Independent lookups run in parallel; tools that write are serialized.
@@ -256,31 +225,7 @@ sequenceDiagram
 
 ## Three apps, one codebase
 
-```mermaid
-flowchart TB
-    subgraph clients[Client apps]
-        web[web/<br/>React SPA from Jac JSX]
-        mobile[mobile/<br/>mobUI → React Native]
-        cli[cli/<br/>in-process or --live]
-    end
-    subgraph core[core/ · one Jac codebase, placement inferred]
-        api[api.jac<br/>authenticated endpoints + SSE]
-        actions[actions.jac]
-        copilot[agent/copilot.jac]
-        engine[review/engine.jac]
-        graph[graph.jac<br/>nodes · edges · walkers]
-        analytics[analytics.jac]
-        git[git/]
-    end
-    web -- typed RPC --> api
-    mobile -- typed RPC --> api
-    cli -- HTTP --> api
-    cli -. in-process .-> engine
-    api --> copilot & engine & actions
-    copilot & engine --> llm[(LLM via byLLM)]
-    actions & engine --> graph --> store[(graph store)]
-    engine & analytics --> git --> repo[(local repo + gh)]
-```
+<img src="docs/media/diagram-architecture.svg" width="100%" alt="Architecture: web, mobile and CLI clients call core/api.jac through typed RPC; the copilot and review engine call the LLM provider, commit to the graph store, and read the local repo"/>
 
 `jac.toml` declares three apps over a shared `core/`. There are no client and server folders: JSX lands in the browser bundle, subprocess and graph code stays on the server, and a client call such as `await pr_detail(id)` compiles to a typed RPC stub. Imports between modules are declared once in [`archwire.jac`](archwire.jac).
 
