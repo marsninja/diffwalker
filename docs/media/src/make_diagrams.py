@@ -59,7 +59,11 @@ def svg(w, h, body, label):
     )
 
 
+BUMP = {10: 12.5, 10.5: 13, 11: 13.5, 11.5: 14, 12: 14.5, 12.5: 14.5, 13: 15, 13.5: 15.5, 14: 16.5, 15: 17, 22: 26}
+
+
 def text(x, y, s, cls="t", size=14, weight=400, anchor="start", fill=None, extra=""):
+    size = BUMP.get(size, size)
     f = f' fill="{fill}"' if fill else ""
     return (
         f'<text x="{x}" y="{y}" class="{cls}" font-size="{size}" font-weight="{weight}" '
@@ -79,8 +83,8 @@ def line(d, color=MUTED, marker="a", width=1.6, cls="", dash=""):
 
 
 def chip(x, y, label, color, soft):
-    w = 9 + len(label) * 6.6
-    return box(x, y, w, 20, fill=soft, stroke=color, r=10, sw=1) + text(x + w / 2, y + 14, label, "m", 11, 500, "middle", fill=color)
+    w = 18 + len(label) * 8.2
+    return box(x, y - 2, w, 24, fill=soft, stroke=color, r=12, sw=1) + text(x + w / 2, y + 15, label, "m", 11, 500, "middle", fill=color)
 
 
 # ---------------------------------------------------------------- pipeline
@@ -92,11 +96,11 @@ def pipeline():
         ("Plan", "intent · lenses", "llm"),
         ("Lenses", "file reviewers", "llm"),
         ("Cross-file", "API drift", "llm"),
-        ("Investigate", "walker reads code", "llm"),
+        ("Investigate", "picks evidence", "llm"),
         ("Verify", "adversarial pass", "llm"),
         ("Synthesize", "verdict", "llm"),
     ]
-    x0, y0, bw, bh, gap = 36, 168, 128, 86, 12
+    x0, y0, bw, bh, gap = 34, 168, 134, 86, 8
     b = []
     b.append(text(34, 50, "The review pipeline", "t", 22, 700))
     b.append(text(34, 76, "Eight stages, each committed to the graph as it finishes, so every open screen follows along.", "s", 14))
@@ -111,7 +115,7 @@ def pipeline():
         b.append(box(x, y0, bw, bh, soft, color, 14, 1.4))
         b.append(f'<circle cx="{x+20}" cy="{y0+22}" r="11" fill="{BG}" stroke="{color}"/>')
         b.append(text(x + 20, y0 + 26.5, str(i + 1), "t", 12, 700, "middle", fill=color))
-        b.append(text(x + 38, y0 + 27, name, "t", 15, 650))
+        b.append(text(x + 37, y0 + 27, name, "t", 15, 650))
         b.append(text(x + 14, y0 + 56, sub, "s", 11.5))
         b.append(text(x + 14, y0 + 73, "flow worker" if name in ("Lenses", "Verify") else "", "m", 10.5, fill=MUTED))
         centers.append(x + bw / 2)
@@ -121,33 +125,33 @@ def pipeline():
     # triage static hits -> drafts
     tx = centers[1]
     b.append(line(f"M{tx},{y0} L{tx},{y0-26}", AMBER, "", 1.4, dash="3 3"))
-    b.append(chip(tx - 52, y0 - 48, "static hits → drafts", AMBER, AMBER_SOFT))
+    b.append(chip(tx - 98, y0 - 48, "static hits → drafts", AMBER, AMBER_SOFT))
     # lenses fan-out
     lx = centers[3]
     fy = y0 + bh + 56
-    lenses = [("correctness", -94), ("security", 0), ("reliability", 94)]
+    lenses = [("correctness", -112), ("security", 0), ("reliability", 112)]
     for (lab, dx) in lenses:
         cx = lx + dx
         b.append(line(f"M{lx},{y0+bh} C{lx},{fy-30} {cx},{fy-34} {cx},{fy-2}", VIOLET, "av", 1.3, "flow"))
-        b.append(box(cx - 42, fy, 84, 26, CARD, VIOLET, 13, 1.1) + text(cx, fy + 17.5, lab, "m", 11, 500, "middle", fill=INK2))
+        b.append(box(cx - 52, fy, 104, 28, CARD, VIOLET, 14, 1.1) + text(cx, fy + 19, lab, "m", 11, 500, "middle", fill=INK2))
     b.append(text(lx, fy + 52, "each reviewer is an obj whose bound methods", "s", 11.5, anchor="middle"))
     b.append(text(lx, fy + 68, "read_file · search_code · file_history are its tools", "s", 11.5, anchor="middle"))
     # investigate: walker picks coderefs
     ix = centers[5]
     b.append(line(f"M{ix},{y0+bh} L{ix},{fy-2}", VIOLET, "av", 1.3, dash="3 3"))
-    b.append(box(ix - 86, fy, 172, 44, CARD, LINE, 10))
-    b.append(text(ix, fy + 18, "visit [here-->][?:CodeRef]", "m", 11, 500, "middle", fill=INK2))
-    b.append(text(ix, fy + 34, "by llm(select=(1, 3))", "m", 11, 500, "middle", fill=VIOLET))
+    b.append(box(ix - 106, fy, 226, 50, CARD, LINE, 10))
+    b.append(text(ix + 7, fy + 21, "visit [here-->][?:CodeRef]", "m", 11, 500, "middle", fill=INK2))
+    b.append(text(ix + 7, fy + 40, "by llm(select=(1, 3))", "m", 11, 500, "middle", fill=VIOLET))
     # verify drops
     vx = centers[6]
     b.append(line(f"M{vx},{y0} L{vx},{y0-26}", RED, "", 1.4, dash="3 3"))
-    b.append(box(vx - 78, y0 - 48, 156, 20, "#3a1717", RED, 10, 1) + text(vx, y0 - 34, "✕ drops false positives", "m", 11, 500, "middle", fill=RED))
+    b.append(box(vx - 104, y0 - 50, 208, 24, "#3a1717", RED, 12, 1) + text(vx, y0 - 33, "✕ drops false positives", "m", 11, 500, "middle", fill=RED))
     # synthesize verdict
     sx = centers[7]
     b.append(line(f"M{sx},{y0+bh} L{sx},{fy-2}", VIOLET, "av", 1.3))
-    b.append(box(sx - 64, fy, 128, 44, VIOLET_SOFT, VIOLET, 10))
-    b.append(text(sx, fy + 18, "request_changes", "m", 11.5, 600, "middle", fill=INK))
-    b.append(text(sx, fy + 34, "risk 95 · $0.13", "m", 11, 500, "middle", fill=INK2))
+    b.append(box(sx - 84, fy, 152, 50, VIOLET_SOFT, VIOLET, 10))
+    b.append(text(sx - 8, fy + 21, "request_changes", "m", 11.5, 600, "middle", fill=INK))
+    b.append(text(sx - 8, fy + 40, "risk 95 · $0.13", "m", 11, 500, "middle", fill=INK2))
     b.append(text(34, H - 22, "Budget-capped per review (DIFFWALKER_REVIEW_BUDGET); typed outputs re-ask the model on a malformed reply.", "s", 12))
     return svg(W, H, "".join(b), "Eight-stage review pipeline: ingest and triage are deterministic; plan, parallel lenses, cross-file, investigate, verify and synthesize are typed LLM calls. The verifier drops false positives.")
 
@@ -163,8 +167,8 @@ def node(x, y, w, h, kind, title, fields, color, soft):
 
 
 def elabel(x, y, s, color=INK2):
-    w = 10 + len(s) * 6.4
-    return box(x - w / 2, y - 12, w, 20, BG, LINE, 6, 1) + text(x, y + 2, s, "m", 10.5, 500, "middle", fill=color)
+    w = 16 + len(s) * 7.9
+    return box(x - w / 2, y - 13, w, 24, BG, LINE, 7, 1) + text(x, y + 4, s, "m", 10.5, 500, "middle", fill=color)
 
 
 def graph():
@@ -237,14 +241,14 @@ def copilot():
         b.append(f'<line x1="{x}" y1="140" x2="{x}" y2="{H-50}" stroke="{LINE}" stroke-dasharray="3 5"/>')
     # loop region
     b.append(box(xs[2] - 96, 222, xs[3] - xs[2] + 192 + gap * 2 - 40, 214, "none", VIOLET, 12, 1.2, 'stroke-dasharray="5 4" opacity=".7"'))
-    b.append(box(xs[2] - 96, 222, 160, 22, VIOLET_SOFT, VIOLET, 10, 1))
-    b.append(text(xs[2] - 16, 237, "loop until it answers", "m", 10.5, 600, "middle", fill=VIOLET))
+    b.append(box(xs[2] - 96, 220, 196, 26, VIOLET_SOFT, VIOLET, 12, 1))
+    b.append(text(xs[2] + 2, 238, "loop until it answers", "m", 10.5, 600, "middle", fill=VIOLET))
     msgs = [
-        (0, 1, 176, "message + what you are looking at", False, False),
+        (0, 1, 176, "message + screen context", False, False),
         (1, 2, 204, "run the turn in a worker", False, False),
         (2, 3, 268, "tool call: focus_file(path, line)", True, False),
         (3, 4, 300, "ui event, tagged with your session", True, False),
-        (4, 5, 332, "SSE → navigate, scroll", True, False),
+        (4, 5, 332, "SSE → the UI moves", True, False),
         (3, 1, 370, "writes go through pump.call() → commit()", False, True),
         (2, 0, 410, "tool chips · chart cards (streamed frames)", False, True),
         (2, 0, 476, "final answer, token by token", False, True),
@@ -256,7 +260,7 @@ def copilot():
         b.append(line(f"M{xa + 6*d},{y} L{xc - 6*d},{y}", col, "av" if hot else "a", 1.8 if hot else 1.4, "flow" if hot else "", "" if not back or hot else "5 4"))
         mid = (xa + xc) / 2
         b.append(text(mid, y - 8, lab, "m", 11.5, 500, "middle", fill=INK if hot else INK2, extra=f'stroke="{BG}" stroke-width="6" paint-order="stroke"'))
-    b.append(f'<circle cx="{xs[5]}" cy="332" r="12" fill="none" stroke="{VIOLET}" stroke-width="2" class="pulse"/>')
+    b.append(f'<circle cx="{xs[5]}" cy="332" r="9" fill="none" stroke="{VIOLET}" stroke-width="2" class="pulse"/>')
     b.append(text(34, H - 20, "Parallel lookups, serialized writes, a Stop button and a per-turn budget (DIFFWALKER_TURN_BUDGET). Publishing to GitHub always waits for your click.", "s", 12))
     return svg(W, H, "".join(b), "Sequence of one Copilot turn: the pane streams a message, a worker runs the by llm tool loop, UI tools emit session-tagged events the app shell applies, writes are committed through the request context, and the answer streams back.")
 
@@ -271,7 +275,7 @@ def arch():
     for (x, lab, w) in cols:
         b.append(box(x, 100, w, 410, "none", LINE, 16, 1, 'stroke-dasharray="4 5"'))
         b.append(text(x + 16, 124, lab, "s", 11, 700, extra='letter-spacing="1.5"'))
-    clients = [("web/", "React SPA from Jac JSX", 150), ("mobile/", "mobUI → React Native", 270), ("cli/", "in-process or --live", 390)]
+    clients = [("web/", "React SPA (Jac JSX)", 150), ("mobile/", "mobUI → React Native", 270), ("cli/", "in-process or --live", 390)]
     for (t, s, y) in clients:
         b.append(box(52, y, 184, 74, BLUE_SOFT, BLUE, 12, 1.3))
         b.append(text(70, y + 30, t, "m", 15, 650, fill=INK))
@@ -317,7 +321,7 @@ def arch():
     b.append(line("M844,358 L922,358", BLUE, "a", 1.5))
     b.append(text(883, 350, "commit", "m", 10.5, anchor="middle", fill=INK2, extra=f'stroke="{BG}" stroke-width="6" paint-order="stroke"'))
     b.append(line("M844,448 L922,448", GREEN, "ag", 1.5))
-    b.append(text(883, 440, "git log/diff", "m", 10.5, anchor="middle", fill=INK2, extra=f'stroke="{BG}" stroke-width="6" paint-order="stroke"'))
+    b.append(text(883, 440, "git", "m", 10.5, anchor="middle", fill=INK2, extra=f'stroke="{BG}" stroke-width="6" paint-order="stroke"'))
     b.append(line("M564,448 L598,448", MUTED, "a"))
     b.append(line("M720,300 L720,324", MUTED, "a"))
     b.append(text(34, H - 22, "Imports between modules are declared once in archwire.jac; every endpoint is def:protect, so each account works in its own graph.", "s", 12))
