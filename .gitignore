@@ -1,0 +1,5 @@
+.jac/
+node_modules/
+.env
+server.log
+dist/

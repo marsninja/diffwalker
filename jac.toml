@@ -1,0 +1,92 @@
+[project]
+name = "diffwalker"
+default-app = "web"
+jac-version = "==0.38.0"
+
+[apps.web]
+kind = "web-app"
+entry-point = "web.main"
+
+[apps.mobile]
+kind = "mobile"
+entry-point = "mobile.main"
+
+[apps.cli]
+kind = "cli"
+entry-point = "cli.main"
+
+
+[jac-shadcn]
+style = "nova"
+baseColor = "neutral"
+theme = "violet"
+font = "geist"
+radius = "default"
+menuAccent = "subtle"
+menuColor = "default"
+components_dir = "core/site/ui"
+utils_path = "core/utils.jac"
+
+[byllm.model]
+default_model = "anthropic/claude-sonnet-5-5"
+
+# Typed outputs (plans, file reviews, verdicts) are re-asked on a malformed reply
+# instead of failing their stage.
+[byllm.call_params]
+timeout = 180.0
+max_output_retries = 3
+
+# Long Copilot conversations summarise their oldest tool rounds instead of being cut.
+[byllm.compaction]
+enabled = true
+
+# A local tool: one process (the live event bus is in-process), loopback only,
+# enough threads for a running review, a Copilot turn, and every open tab's live stream.
+[serve]
+host = "127.0.0.1"
+
+[serve.workers]
+count = 1
+threads = 32
+
+# Id lookups compile to indexed SQL instead of scanning the jsonb rows.
+[scale.database]
+indexes = { Review = ["id", "status"], Finding = ["id", "status"], PullRequest = ["id"], ChatThread = ["id"] }
+
+[dependencies]
+
+[dependencies.npm]
+"@hugeicons/react" = "^1.1.9"
+"@hugeicons/core-free-icons" = "^4.2.3"
+radix-ui = "*"
+class-variance-authority = "*"
+"@fontsource-variable/geist" = "*"
+"@fontsource-variable/geist-mono" = "*"
+"@tailwindcss/vite" = "^4.1.17"
+tailwindcss = "^4.1.17"
+clsx = "^2.1.1"
+tailwind-merge = "^3.5.0"
+tw-animate-css = "^1.4.0"
+lucide-react = "^0.469.0"
+react-native-web = "^0.21.2"
+mermaid = "^11"
+
+[apps.cli.check.lint]
+ignore = ["no-print"]
+
+[apps.mobile.dependencies.npm.native]
+lucide-react-native = "^0.469.0"
+react-native-svg = "^15.13.0"
+
+[client.vite]
+plugins = ["tailwindcss()"]
+lib_imports = ["import tailwindcss from '@tailwindcss/vite'"]
+
+[client.app_meta_data]
+title = "diffwalker - agentic code review for local repos"
+description = "An automated code reviewer built end to end in Jac: reads pull requests, analyzes diffs, identifies issues, and posts contextual feedback."
+theme_color = "#7c5cff"
+
+[dependencies.pypi]
+litellm = "~=1.106"
+mcp = "~=2.3"
