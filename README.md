@@ -60,10 +60,13 @@ You need [Jac](https://jaclang.org) 0.38 (see jaclang.org for the installer), `g
 ```bash
 git clone https://github.com/marsninja/diffwalker
 cd diffwalker
+export $(./scripts/stage_compiler.sh)          # inits the jaseci submodule, prints JAC_DEV_SOURCE
 echo 'ANTHROPIC_API_KEY=sk-ant-...' > .env     # gitignored; read at startup
 jac install                                     # npm + Python dependencies
 DIFFWALKER_REPO=/path/to/any/git/repo jac run web
 ```
+
+diffwalker builds with the jac compiler source pinned in the `jaseci` submodule (`marsninja/jac`, branch `diffwalker-pin`: upstream jac main plus any fixes found here that are still in review). `stage_compiler.sh` initialises the submodule, fetches the typeshed stubs the compiler needs (without them the launcher silently falls back to its bundled compiler) and prints `JAC_DEV_SOURCE=<repo>/jaseci/jac`; export it in each shell. `scripts/refresh.sh` moves the submodule to the newest pin. jac bugs, and errors or gaps in its guides and docs, are fixed upstream rather than worked around here (see [AGENTS.md](AGENTS.md) and [DOGFOOD.md](DOGFOOD.md)).
 
 Open the printed App URL (usually <http://localhost:8000>), create an account, and you are looking at your repository. Switch repositories any time from the top bar, or ask Copilot to.
 
@@ -262,12 +265,14 @@ The server binds `127.0.0.1` and runs a single worker (the live event bus is in-
 | `core/native/` | The mobUI phone app, shared by `mobile/` and the web page that embeds it |
 | `cli/` | The command-line app |
 | `docs/demo/make-demo-repo.sh` | Builds the demo repository used in the screenshots |
+| `jaseci/` | Submodule: the pinned jac compiler source (`marsninja/jac`, branch `diffwalker-pin`) |
+| `scripts/` | `stage_compiler.sh` (build with the pinned source), `refresh.sh` (move to the newest pin) |
 
 Type-check every app with `jac check` (or `jac check --app web`, `--app mobile`, `--app cli`).
 
 ## Notes on the Jac toolchain
 
-diffwalker targets Jac 0.38. Building it surfaced several issues, tracked in [jaseci-labs/jac#10234](https://github.com/jaseci-labs/jac/issues/10234); the workarounds in the code cite it:
+diffwalker targets Jac 0.38. Building it surfaced several issues, tracked in [jaseci-labs/jac#10234](https://github.com/jaseci-labs/jac/issues/10234). The workarounds below predate the rule to fix jac upstream instead; each is waiting for its upstream fix and will be removed when that fix lands in the pin (see [DOGFOOD.md](DOGFOOD.md)):
 
 - `core/env.jac` sets `JAC_DB_RO_UNITS=0`, because the optimistic read-only unit tier would turn a post-`commit()` write in a long review into a replay of the whole endpoint.
 - `core/env.jac` also guards a byLLM lookup that can return a function record without its parameters (which would crash every `by llm` call that takes arguments) by falling back to the signature.
