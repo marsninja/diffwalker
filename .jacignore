@@ -1,0 +1,5 @@
+# Trees that are not part of the app: the pinned jac checkout (used through
+# [dev] jaclang_source) and the README media. jac check, the sealed image a
+# desktop build ships, and deploys all leave them out.
+jaseci/
+docs/

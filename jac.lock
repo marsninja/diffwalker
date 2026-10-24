@@ -8,4 +8,4 @@ resolved = ["Jinja2==3.1.6", "MarkupSafe==3.0.4", "PyJWT==2.15.1", "PyYAML==6.0.
 inputs = "sha256:289613be708c95ad3343e637fd342ee1f4653c4a17b34d6ff3ddd72db8eb6dd0"
 
 [npm]
-bun_lock = "sha256:9ea1e7f22b9627932e04b3507ffbba4f4679d3fe65205287d727dd3f2d911e12"
+bun_lock = "sha256:6da880b5e3de53c65ca2cec7062877ebdbb4a869ac2c6084d09a4a311df0e833"

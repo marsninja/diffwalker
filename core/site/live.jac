@@ -1,4 +1,5 @@
 import from "@jac/runtime" { jacLogout, jacIsLoggedIn }
+import from "@jac/desktop" { profiles }
 
 glob NL: str = chr(10),
      _session: list[str] = [""],
@@ -123,7 +124,26 @@ def:pub auth_headers -> dict[str, str] {
     return headers;
 }
 
+"""A rejected session. On local profiles there is no sign-in to return to: reload, and
+the desktop host signs the page in again as the active profile; a second rejection
+within half a minute leaves the profile instead of looping."""
 def:pub signed_out {
+    if profiles.enabled() {
+        last = 0;
+        try {
+            last = int(sessionStorage.getItem("dw-reauth") or "0");
+        } except Exception {
+            last = 0;
+        }
+        now = Date.now();
+        if now - last < 30000 {
+            profiles.leave();
+            return;
+        }
+        sessionStorage.setItem("dw-reauth", str(now));
+        window.location.reload();
+        return;
+    }
     jacLogout();
     publish("signed-out", True);
     if not window.location.pathname.startswith("/login") {

@@ -1,13 +1,20 @@
 # Working in this Jac project
 
-diffwalker is a three-app Jac workspace (`web`, `mobile`, `cli`) over one
-shared `core/`. Read `README.md` for the layout:
+diffwalker is a four-app Jac workspace (`web`, `desktop`, `mobile`, `cli`) over
+one shared `core/`. Read `README.md` for the layout:
 
 - Endpoints live in `core/api.jac`; graph mutations shared with the Copilot's
   tools live in `core/actions.jac`; imports between modules are declared once
   in `archwire.jac`.
-- Validate with `jac check` (whole workspace, or `--app web|mobile|cli`), then
-  `jac run web` and `jac browse open localhost:8000`.
+- `desktop` is the web app's pages (`web/desktop.jac` sits beside
+  `web/main.jac`, so both route from `web/pages`) in a native window, with a
+  run-time choice of backend (`[apps.desktop.desktop.backends]`): the embedded
+  server or a diffwalker server. Local mode has no sign-in: `profiles = true`
+  gives named profiles, each its own root. `core/site/desktop/BackendGate.jac`
+  holds the mode and profile pickers and the sidebar's switch.
+- Validate with `jac check` (whole workspace, or `--app web|desktop|mobile|cli`),
+  then `jac run web` and `jac browse open localhost:8000`; for the desktop app,
+  `jac run desktop`.
 - Fix jac bugs, and wrong or missing jac guidance, upstream instead of
   working around them (next section), and record each one in `DOGFOOD.md`.
 
@@ -29,12 +36,20 @@ means rewriting published history.
 A core goal of diffwalker is to exercise and improve jac itself. The `jaseci`
 submodule pins the compiler source this workspace builds with: the
 `diffwalker-pin` branch of `marsninja/jac`, which is upstream `jaseci-labs/jac`
-main plus the fixes found here that are still in review. Stage it once per
-shell so the installed `jac` binary compiles with that source:
+main plus the fixes found here that are still in review. `jac.toml`'s
+`[dev] jaclang_source = "jaseci/jac"` makes every jac command run in this
+project use that source; prepare it after cloning and after every pin move:
 
 ```bash
-export $(./scripts/stage_compiler.sh)
+./scripts/stage_compiler.sh
 ```
+
+It checks the submodule out at the recorded pin and fetches the typeshed stubs,
+without which jac prints `ignoring the dev compiler source` and quietly uses its
+bundled compiler. Every command on the pinned source prints `jac dev mode —
+using compiler source at .../jaseci/jac`; if that line is missing, the pin is
+not in use. (There is no `JAC_DEV_SOURCE` variable: the launcher never reads
+one.)
 
 Working around a jac bug hides the defect and defeats that goal. When a
 reasonable Jac idiom, CLI command or documented workflow fails, errors, or
@@ -49,10 +64,16 @@ behaves unexpectedly:
    root, run `jac fmt --lintfix` on every `.jac` file the fix touches, then
    `jac check . --nowarn`. The jac repo's lint config strips comments and
    docstrings, so put the rationale in the commit message and release note.
-3. Push the fix and open a PR against `jaseci-labs/jac` main. This workflow is
-   authorized without asking for separate permission for each defect. Report
-   the issue, validation results, and PR link. Keep Claude out of it, as for
-   diffwalker's own commits and PRs (see "Commits and PRs" above).
+3. Push the fix and open a PR against `jaseci-labs/jac` main with the
+   `realdeal` label (`gh pr create --label realdeal ...`). This workflow is
+   authorized without asking for separate permission for each defect. The PR
+   body must say plainly whether the change is a **proper root-cause fix** or
+   a **workaround** (a guard, special case or symptom patch that leaves the
+   underlying defect in place). Proper fixes are strongly preferred; ship a
+   workaround only when the root cause cannot be fixed now, and then explain
+   in the PR body why, and what a proper fix would take. Report the issue,
+   validation results, and PR link. Keep Claude out of it, as for diffwalker's
+   own commits and PRs (see "Commits and PRs" above).
 4. Add the fix to `diffwalker-pin`, bump the `jaseci` submodule here, and
    **resume the original work on the locally fixed compiler** while the PR
    awaits review. Do not wait for the upstream merge unless it is technically
@@ -77,8 +98,8 @@ required step nobody mentions, an error message whose advice is wrong. Do not
 just note the correct usage here and move on. Fix the text at its source in
 the submodule (`jaseci/jac/jaclang/cli/skills/*.md` for the guides,
 `jaseci/jac/jaclang/cli/docs/` for the docs) and take it through the same
-steps: a branch off upstream main, a PR against `jaseci-labs/jac`, the fix
-added to `diffwalker-pin`, an entry in `DOGFOOD.md`. In place of a regression
+steps: a branch off upstream main, a PR against `jaseci-labs/jac` labeled
+`realdeal`, the fix added to `diffwalker-pin`, an entry in `DOGFOOD.md`. In place of a regression
 test, run every example the corrected text shows on the pinned compiler.
 
 `scripts/stage_compiler.sh` checks the submodule out at the commit this repo
