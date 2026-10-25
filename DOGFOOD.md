@@ -9,8 +9,8 @@ working here. This page records those defects and their upstream fixes.
 ## Current compiler
 
 The `jaseci` submodule pins the compiler source. It points at the
-`diffwalker-pin` branch of `marsninja/jac`: upstream main `87267e1c2c` (jac
-0.38.1) plus the seven PRs under "Open upstream". `jac.toml`'s
+`diffwalker-pin` branch of `marsninja/jac`: upstream main `80ab194067` plus
+the two PRs under "Open upstream" (the other five have merged). `jac.toml`'s
 `[dev] jaclang_source = "jaseci/jac"` makes jac use it, and
 `scripts/stage_compiler.sh` prepares it (submodule at the pin, typeshed stubs);
 build the native kernel once per pin with `jac native build llvm-shim`, then
@@ -48,13 +48,8 @@ In the pin:
 
 | Defect | Upstream PR | Found by |
 | --- | --- | --- |
-| The `jac-sv-persistence` guide and the scale persistence reference said to declare promoted fields under `[scale.database] indexes`; the loader reads them from the top-level `[database]` table, so the key drew "unknown key ... ignored" and diffwalker's id indexes never applied (now moved to `[database]`). The config reference had no `[database]` section. | [#10350](https://github.com/jaseci-labs/jac/pull/10350) | The new `unknown key 'indexes'` warning on the pin |
 | The in-process runtime behind the desktop host never set the runtime's target, so project config resolved from the app's output directory: byLLM ignored `[byllm.model]` and sent every review call to `gpt-4o-mini` ("OpenAIException - Missing credentials"). Setting the target also renames the embedded database (`jac_main_*` to `jac_<project>_*`), so the host migrates the old one at boot. | [#10348](https://github.com/jaseci-labs/jac/pull/10348) | The first review run in local mode |
-| An app on its own embedded server still needed a sign-in for every protected endpoint, with nobody to sign in to. `[desktop] profiles = true` gives named, passwordless profiles (save slots), each its own user and root; the page boots signed in as the active one. | [#10347](https://github.com/jaseci-labs/jac/pull/10347) (on top of #10345) | Making diffwalker's local mode need no login |
-| There was no way to let a desktop app's user choose between its embedded server and a remote one: `[desktop] backend` is fixed at build time, so offering both meant two builds. `[desktop] backends` + `default_backend` now ship every listed backend; the host boots the saved choice, switching relaunches the app, and sessions are per backend. | [#10345](https://github.com/jaseci-labs/jac/pull/10345) | Designing diffwalker's desktop app (local mode or server mode) |
-| `build_jab` sealed the whole project root, dropping only build and cache dirs: the project's `.env`, with `ANTHROPIC_API_KEY`, shipped inside the desktop app's `app.jab`, and so did the entire `jaseci/` compiler checkout (about 8,000 files). The deploy bundle already left out `.env`, key files and `.jacignore`'d trees; the seal now uses the same floor and honors `.jacignore` (diffwalker's parks `jaseci/` and `docs/`). | [#10346](https://github.com/jaseci-labs/jac/pull/10346) | Inspecting the first diffwalker desktop build |
-| The `jac-native` guide still said to point `JAC_DEV_SOURCE` at a compiler tree; the launcher reads only `[dev] jaclang_source` from the nearest `jac.toml`, and the `[dev]` reference did not say what it requires (path relative to `jac.toml`, typeshed stubs, nearest file only). | [#10342](https://github.com/jaseci-labs/jac/pull/10342) | `@jac/desktop` resolving into the bundled runtime instead of the pinned source |
-| A second embedded desktop boot in one process reused the first app's Postgres distribution (the artifact router cached the `postgres` resolution while `host_boot` moved `JAC_PG_HOME`), so every later boot failed with `.../bin/initdb: No such file or directory`; 3 of `test_desktop_host.jac`'s 5 tests failed on upstream main. | [#10341](https://github.com/jaseci-labs/jac/pull/10341) | Running the desktop host tests for #10345 |
+| Two running instances of a desktop app that each created a local profile overwrote each other's `profiles.json`, so the first profile vanished after a relaunch (Greptile's P1 on #10347, which merged before the fix reached it). Changes now take a cross-process lock and reread the list first. | [#10371](https://github.com/jaseci-labs/jac/pull/10371) | Review of #10347 |
 
 Found, not fixed yet:
 
@@ -70,4 +65,13 @@ Found, not fixed yet:
 
 ## Resolved (merged upstream)
 
-None yet.
+Merged 2026-10-24 and 2026-10-25.
+
+| Defect | Upstream PR | Found by |
+| --- | --- | --- |
+| The `jac-sv-persistence` guide and the scale persistence reference said to declare promoted fields under `[scale.database] indexes`; the loader reads them from the top-level `[database]` table, so the key drew "unknown key ... ignored" and diffwalker's id indexes never applied (now moved to `[database]`). The config reference had no `[database]` section. | [#10350](https://github.com/jaseci-labs/jac/pull/10350) | The new `unknown key 'indexes'` warning on the pin |
+| An app on its own embedded server still needed a sign-in for every protected endpoint, with nobody to sign in to. `[desktop] profiles = true` gives named, passwordless profiles (save slots), each its own user and root; the page boots signed in as the active one. | [#10347](https://github.com/jaseci-labs/jac/pull/10347); the lock that keeps two running instances from dropping each other's profiles is follow-up [#10371](https://github.com/jaseci-labs/jac/pull/10371), still open | Making diffwalker's local mode need no login |
+| There was no way to let a desktop app's user choose between its embedded server and a remote one: `[desktop] backend` is fixed at build time, so offering both meant two builds. `[desktop] backends` + `default_backend` now ship every listed backend; the host boots the saved choice, switching relaunches the app, and sessions are per backend. | [#10347](https://github.com/jaseci-labs/jac/pull/10347) (#10345's commits; #10345 itself was closed) | Designing diffwalker's desktop app (local mode or server mode) |
+| `build_jab` sealed the whole project root, dropping only build and cache dirs: the project's `.env`, with `ANTHROPIC_API_KEY`, shipped inside the desktop app's `app.jab`, and so did the entire `jaseci/` compiler checkout (about 8,000 files). The deploy bundle already left out `.env`, key files and `.jacignore`'d trees; the seal now uses the same floor and honors `.jacignore` (diffwalker's parks `jaseci/` and `docs/`). | [#10346](https://github.com/jaseci-labs/jac/pull/10346) | Inspecting the first diffwalker desktop build |
+| The `jac-native` guide still said to point `JAC_DEV_SOURCE` at a compiler tree; the launcher reads only `[dev] jaclang_source` from the nearest `jac.toml`, and the `[dev]` reference did not say what it requires (path relative to `jac.toml`, typeshed stubs, nearest file only). | [#10342](https://github.com/jaseci-labs/jac/pull/10342) | `@jac/desktop` resolving into the bundled runtime instead of the pinned source |
+| A second embedded desktop boot in one process reused the first app's Postgres distribution (the artifact router cached the `postgres` resolution while `host_boot` moved `JAC_PG_HOME`), so every later boot failed with `.../bin/initdb: No such file or directory`; 3 of `test_desktop_host.jac`'s 5 tests failed on upstream main. | [#10341](https://github.com/jaseci-labs/jac/pull/10341) | Running the desktop host tests for #10345 |
