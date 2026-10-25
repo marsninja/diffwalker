@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Sync the jaseci submodule to the tip of its pin branch (diffwalker-pin: upstream
-# jac main plus fixes still in review). The installed jac binary
-# compiles with the submodule's source once scripts/stage_compiler.sh has
-# staged it (CI does; locally, export the variables it prints).
+# jac main plus fixes still in review), then prepare it with
+# scripts/stage_compiler.sh. jac.toml's [dev] stanza makes jac use it.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -28,5 +27,5 @@ if ! command -v jac >/dev/null 2>&1; then
     exit 1
 fi
 
-bash "$REPO_ROOT/scripts/stage_compiler.sh" >/dev/null
+bash "$REPO_ROOT/scripts/stage_compiler.sh"
 echo "==> Done. jac version: $(jac --version | head -1)"

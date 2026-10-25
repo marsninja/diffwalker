@@ -121,6 +121,9 @@ def:pub SignIn -> JsxElement {
                     {"Reviewer model " + info.model + (" · ready" if info.llm else " · credentials missing")}
                 </div>
             }}
+            <div className="mt-4 flex justify-center">
+                <ModeSwitch/>
+            </div>
         </div>
     </div>
 }

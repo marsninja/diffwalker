@@ -3,7 +3,7 @@ graph import {
 
     core.agent.copilot ++> cli.commands.ask { AgentCtx, copilot, set_agent }
     core.analytics ++> cli.commands.browse { contributors, hotspots, languages, stats }
-    core.api ++> web.main;
+    core.api ++> web.desktop | web.main;
     core.env ++> cli.commands.common { PROJECT_DIR }
     core.git.repo ++> [
         cli.commands.browse { discover_prs, repo_info },
@@ -20,6 +20,7 @@ graph import {
         cli.commands.ask { llm_ready },
         cli.commands.review { llm_ready, run_review },
     ]
+    core.site.desktop.BackendGate ++> web.desktop { BackendGate }
     core.site.shell.AppShell ++> web.pages.layout { RootLayout }
 }
 
@@ -411,6 +412,10 @@ graph import core.site {
         },
     ]
     copilot.CopilotPane ++> shell.AppShell { CopilotPane }
+    desktop.BackendGate ++> [
+        auth.SignIn { ModeSwitch },
+        shell.AppShell { ModeSwitch, profiles_on },
+    ]
     fmt ++> [
         built.Built { fmt_num, series_color },
         charts.ChartCard { ago, series_color, sev_color },
@@ -485,7 +490,7 @@ graph import core.site {
         pages.Dashboard | pages.Reviews { launch_review },
         review.ReviewWorkspace { is_running, launch_review },
     ]
-    shell.Brand ++> auth.SignIn { Wordmark }
+    shell.Brand ++> auth.SignIn | desktop.BackendGate { Wordmark }
     state ++> [
         built.Built | review.FindingCard | review.ReviewWorkspace { ask_copilot },
         copilot.CopilotPane { set_pane, take_pending_ask, useWorkspace },

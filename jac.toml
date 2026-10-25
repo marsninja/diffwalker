@@ -15,6 +15,12 @@ entry-point = "mobile.main"
 kind = "cli"
 entry-point = "cli.main"
 
+# The web app's pages in a native window, run either on this computer or against a
+# diffwalker server; the user picks at first launch and can switch from the sidebar.
+[apps.desktop]
+kind = "desktop"
+entry-point = "web.desktop"
+
 
 [jac-shadcn]
 style = "nova"
@@ -50,7 +56,7 @@ count = 1
 threads = 32
 
 # Id lookups compile to indexed SQL instead of scanning the jsonb rows.
-[scale.database]
+[database]
 indexes = { Review = ["id", "status"], Finding = ["id", "status"], PullRequest = ["id"], ChatThread = ["id"] }
 
 [dependencies]
@@ -74,6 +80,27 @@ mermaid = "^11"
 [apps.cli.check.lint]
 ignore = ["no-print"]
 
+[apps.desktop.desktop]
+name = "diffwalker"
+identifier = "dev.diffwalker.desktop"
+version = "0.1.0"
+default_backend = "ask"
+# On this computer there is no sign-in: named profiles, each its own root.
+profiles = true
+
+# "web" is the diffwalker server to connect to, fixed at build time:
+# DIFFWALKER_SERVER_URL=https://reviews.example.com jac build desktop
+[apps.desktop.desktop.backends]
+local = "embedded"
+web = "${DIFFWALKER_SERVER_URL:-http://127.0.0.1:8000}"
+
+[apps.desktop.desktop.window]
+title = "diffwalker"
+width = 1440
+height = 900
+min_width = 1024
+min_height = 680
+
 [apps.mobile.dependencies.npm.native]
 lucide-react-native = "^0.469.0"
 react-native-svg = "^15.13.0"
@@ -90,3 +117,7 @@ theme_color = "#7c5cff"
 [dependencies.pypi]
 litellm = "~=1.106"
 mcp = "~=2.3"
+
+# Build with the jac compiler source pinned in the jaseci submodule (see AGENTS.md).
+[dev]
+jaclang_source = "jaseci/jac"

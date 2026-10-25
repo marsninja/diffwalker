@@ -11,7 +11,7 @@ Point it at a repo. It finds the pull requests (local branches, open GitHub PRs,
 [![License: MIT](https://img.shields.io/badge/license-MIT-7c5cff.svg)](LICENSE)
 [![Built with Jac](https://img.shields.io/badge/built%20with-Jac-ff6b35.svg)](https://jaclang.org)
 [![LLM: any LiteLLM model](https://img.shields.io/badge/LLM-any%20LiteLLM%20model-d97757.svg)](#configuration)
-[![Apps](https://img.shields.io/badge/apps-web%20·%20mobile%20·%20cli-3987e5.svg)](#three-apps-one-codebase)
+[![Apps](https://img.shields.io/badge/apps-web%20·%20desktop%20·%20mobile%20·%20cli-3987e5.svg)](#four-apps-one-codebase)
 
 <img src="docs/media/diffwalker-demo.gif" alt="Copilot touring the jaseci repository, then switching to a demo repo, running a live review and jumping to the most serious finding" width="100%"/>
 
@@ -32,11 +32,12 @@ Point it at a repo. It finds the pull requests (local branches, open GitHub PRs,
   - [Repository insights](#repository-insights)
   - [Insight board](#insight-board)
   - [Mobile app](#mobile-app)
+  - [Desktop app](#desktop-app)
   - [Command line](#command-line)
   - ["How it's built" page](#how-its-built-page)
 - [How a review works](#how-a-review-works)
 - [How the Copilot works](#how-the-copilot-works)
-- [Three apps, one codebase](#three-apps-one-codebase)
+- [Four apps, one codebase](#four-apps-one-codebase)
 - [Configuration](#configuration)
 - [Project layout](#project-layout)
 - [Notes on the Jac toolchain](#notes-on-the-jac-toolchain)
@@ -50,7 +51,7 @@ Point it at a repo. It finds the pull requests (local branches, open GitHub PRs,
 - **A Copilot that drives the UI.** 29 tools: it navigates, opens pull requests, scrolls to code, runs reviews, posts and resolves comments, renders charts and Mermaid diagrams, and pins them to a board, all live on your screen. Publishing to GitHub always waits for your click.
 - **Repository analytics.** Commit heatmap, weekly volume and churn, commit-type mix, hotspot scatter, contributors and ownership (with knowledge-silo warnings), a treemap of the codebase, and a temporal-coupling network.
 - **Spend you can see.** Every review and Copilot turn is metered per stage from model telemetry, shown in the UI and the CLI, and capped by a budget.
-- **Web, mobile, and CLI.** One codebase, three apps. The mobile app is real React Native, and the same component is embedded live in the web app. The CLI can drive your open browser.
+- **Web, desktop, mobile, and CLI.** One codebase, four apps. The desktop app runs the whole thing on your computer or connects to a diffwalker server, your choice at launch. The mobile app is real React Native, and the same component is embedded live in the web app. The CLI can drive your open browser.
 - **Private per account.** Every endpoint is authenticated, and each user's reviews, Copilot threads, board, and active repository live in their own graph.
 
 ## Quick start
@@ -60,13 +61,13 @@ You need [Jac](https://jaclang.org) 0.38 (see jaclang.org for the installer), `g
 ```bash
 git clone https://github.com/marsninja/diffwalker
 cd diffwalker
-export $(./scripts/stage_compiler.sh)          # inits the jaseci submodule, prints JAC_DEV_SOURCE
+./scripts/stage_compiler.sh                     # checks out the pinned jac in jaseci/, fetches its stubs
 echo 'ANTHROPIC_API_KEY=sk-ant-...' > .env     # gitignored; read at startup
 jac install                                     # npm + Python dependencies
 DIFFWALKER_REPO=/path/to/any/git/repo jac run web
 ```
 
-diffwalker builds with the jac compiler source pinned in the `jaseci` submodule (`marsninja/jac`, branch `diffwalker-pin`: upstream jac main plus any fixes found here that are still in review). `stage_compiler.sh` initialises the submodule, fetches the typeshed stubs the compiler needs (without them the launcher silently falls back to its bundled compiler) and prints `JAC_DEV_SOURCE=<repo>/jaseci/jac`; export it in each shell. `scripts/refresh.sh` moves the submodule to the newest pin. jac bugs, and errors or gaps in its guides and docs, are fixed upstream rather than worked around here (see [AGENTS.md](AGENTS.md) and [DOGFOOD.md](DOGFOOD.md)).
+diffwalker builds with the jac compiler source pinned in the `jaseci` submodule (`marsninja/jac`, branch `diffwalker-pin`: upstream jac main plus any fixes found here that are still in review). `jac.toml`'s `[dev] jaclang_source = "jaseci/jac"` makes every jac command in this directory use that source, and `stage_compiler.sh` prepares it: it checks the submodule out at the recorded pin and fetches the typeshed stubs the compiler needs (without them jac prints `ignoring the dev compiler source` and uses its bundled compiler). On the pinned source each command prints `jac dev mode — using compiler source at .../jaseci/jac`. `scripts/refresh.sh` moves the submodule to the newest pin. jac bugs, and errors or gaps in its guides and docs, are fixed upstream rather than worked around here (see [AGENTS.md](AGENTS.md) and [DOGFOOD.md](DOGFOOD.md)).
 
 Open the printed App URL (usually <http://localhost:8000>), create an account, and you are looking at your repository. Switch repositories any time from the top bar, or ask Copilot to.
 
@@ -152,6 +153,22 @@ Charts, tables, and Mermaid diagrams that Copilot renders can be pinned. They pe
 
 <p align="center"><img src="docs/screenshots/mobile.png" alt="Three mobile screens: the pull request inbox, a review with findings, and the Copilot tab" width="100%"/></p>
 
+### Desktop app
+
+`jac run desktop` opens the web app's pages in a native window (the OS webview, no Electron). On first launch it asks how diffwalker should run:
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/desktop-mode.png" alt="First launch: choose between running on this computer and connecting to a diffwalker server"/></td>
+<td width="50%"><img src="docs/screenshots/desktop-profile.png" alt="Local mode: start a named profile, no account or password"/></td>
+</tr>
+</table>
+
+- **On this computer**: the whole server runs inside the app, with its own Postgres under your user data directory, and reviews the repositories on this machine with your model key. It needs no network beyond the model provider. There is no account: you pick or start a named profile, like a save slot, and each profile keeps its own reviews, findings, board, and Copilot threads.
+- **Server**: the app is a window onto a diffwalker server (`jac run web` on a shared machine). You sign in there, and its reviews and findings are what you see.
+
+The two modes keep separate data. Switch mode or profile from the bottom of the sidebar; switching mode relaunches the app. The server address is fixed when the app is built: `DIFFWALKER_SERVER_URL=https://reviews.example.com jac build desktop` (default `http://127.0.0.1:8000`). That server must allow the app's loopback origin.
+
 ### Command line
 
 The CLI runs the same engine in-process against any repository, with live stage progress, per-stage spend, and an exit code of 1 when changes are requested (useful in hooks and CI). With `--live` it runs on a server instead, and any browser you have open on that server follows along.
@@ -226,11 +243,11 @@ Typed outputs re-ask the model on a malformed reply. Telemetry is billed per rev
 - UI events are tagged with the user and the browser or CLI session. Each user's live stream carries only their own events, which is how the terminal can drive the same user's browser.
 - Publishing to GitHub asks for confirmation in the UI, and the `gh` call is deferred to commit so it can never run twice.
 
-## Three apps, one codebase
+## Four apps, one codebase
 
 <img src="docs/media/diagram-architecture.svg" width="100%" alt="Architecture: web, mobile and CLI clients call core/api.jac through typed RPC; the copilot and review engine call the LLM provider, commit to the graph store, and read the local repo"/>
 
-`jac.toml` declares three apps over a shared `core/`. There are no client and server folders: JSX lands in the browser bundle, subprocess and graph code stays on the server, and a client call such as `await pr_detail(id)` compiles to a typed RPC stub. Imports between modules are declared once in [`archwire.jac`](archwire.jac).
+`jac.toml` declares four apps over a shared `core/`. There are no client and server folders: JSX lands in the browser bundle, subprocess and graph code stays on the server, and a client call such as `await pr_detail(id)` compiles to a typed RPC stub. Imports between modules are declared once in [`archwire.jac`](archwire.jac).
 
 ## Configuration
 
@@ -245,6 +262,7 @@ Put secrets in `.env` (gitignored) or the environment.
 | `DIFFWALKER_REVIEW_DEADLINE` | `900` | Seconds before a review is cut off |
 | `DIFFWALKER_TURN_BUDGET` | `0.75` | Dollar cap per Copilot turn |
 | `DIFFWALKER_URL` | `http://localhost:8000` | Server for CLI `--live` commands |
+| `DIFFWALKER_SERVER_URL` | `http://127.0.0.1:8000` | Read by `jac build desktop`: the server the desktop app's server mode connects to |
 | `DIFFWALKER_TOKEN` / `DIFFWALKER_PASSWORD` | | Non-interactive CLI auth |
 
 The server binds `127.0.0.1` and runs a single worker (the live event bus is in-process). diffwalker runs `git` and `gh` against paths you give it; it is meant for local use, not for exposure on a network.
@@ -263,6 +281,8 @@ The server binds `127.0.0.1` and runs a single worker (the live event bus is in-
 | `core/live.jac` | Per-user event bus |
 | `core/site/` | Web UI: sign-in, shell, Copilot pane, pages, review workspace, hand-built SVG charts, diagrams |
 | `core/native/` | The mobUI phone app, shared by `mobile/` and the web page that embeds it |
+| `core/site/desktop/` | The desktop app's mode and profile pickers, and the sidebar's switch |
+| `web/desktop.jac` | The desktop app's entry, beside `web/main.jac` so both route from `web/pages` |
 | `cli/` | The command-line app |
 | `docs/demo/make-demo-repo.sh` | Builds the demo repository used in the screenshots |
 | `jaseci/` | Submodule: the pinned jac compiler source (`marsninja/jac`, branch `diffwalker-pin`) |

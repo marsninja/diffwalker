@@ -191,18 +191,21 @@ def Sidebar(path: str, ws: any) -> JsxElement {
                     }}
                 </div>
             </div>
+            <ModeSwitch/>
             <div className="flex items-center justify-between px-1">
                 <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60">
                     Built with Jac
                 </p>
-                <button
-                    type="button"
-                    onClick={lambda { signed_out(); }}
-                    className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
-                >
-                    <LogOut className="size-3"/>
-                    Sign out
-                </button>
+                {if not profiles_on() {
+                    <button
+                        type="button"
+                        onClick={lambda { signed_out(); }}
+                        className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                    >
+                        <LogOut className="size-3"/>
+                        Sign out
+                    </button>
+                }}
             </div>
         </div>
     </aside>

@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Stage the pinned jac compiler source in the jaseci submodule so the installed
-# jac binary compiles with it (JAC_DEV_SOURCE). The submodule pins upstream
-# fixes that no jac release carries yet. The launcher silently falls back to
-# its bundled compiler unless the typeshed stdlib stubs are present, so this
-# fetches the commit the compiler pins (jac's own `zig build fetch-typeshed`).
-# Prints the environment to export. Without a native compiler kernel the
-# compiler runs on its slower bytecode floor; build the kernel once per pin with
-# `jac native build llvm-shim` and then `jac native build kernel` (long).
+# Prepare the pinned jac compiler source in the jaseci submodule. jac.toml's
+# `[dev] jaclang_source = "jaseci/jac"` routes every jac command run in this
+# project to that source, but the launcher refuses a tree without the typeshed
+# stdlib stubs (it prints "ignoring the dev compiler source" and falls back to
+# its bundled compiler), so this checks the submodule out at the recorded pin
+# and fetches the stubs the compiler pins (jac's own `zig build fetch-typeshed`).
+# Run it after cloning and after every pin move. Without a native compiler
+# kernel the compiler runs on its slower bytecode floor; build the kernel once
+# per pin with `jac native build llvm-shim` and then `jac native build kernel`.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -35,4 +36,4 @@ if [[ "$(cat "$TYPESHED/stdlib/.typeshed-sha" 2>/dev/null)" != "$commit" ]]; the
   printf '%s\n' "$commit" > "$TYPESHED/stdlib/.typeshed-sha"
 fi
 
-echo "JAC_DEV_SOURCE=$SOURCE"
+echo "jaseci/jac is ready: jac commands in this project use it (look for \"jac dev mode\")." >&2
