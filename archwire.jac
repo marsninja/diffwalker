@@ -1,10 +1,26 @@
+graph spaces {
+    space site: browser { entry web; pages.* | core.site.*; }
+    space phone: hermes { entry mobile.main; }
+    space api: native { core.api; }
+    space cli: native { entry cli.main; }
+
+    app web { run api; serve site; }
+    app desktop { run site; }
+    app mobile { run phone; }
+    app cli { run cli; }
+}
+
+# The desktop app with diffwalker itself in the window's program: no server to reach.
+graph spaces local {
+    app desktop { run site, api; }
+}
+
 graph import {
-    edge Core: core.* --> cli.* | mobile.* | web.*;
+    edge Core: core.* --> cli.* | mobile.* | pages.* | web;
 
     core.agent.copilot ++> cli.commands.ask { AgentCtx, copilot, set_agent }
     core.analytics ++> cli.commands.browse { contributors, hotspots, languages, stats }
-    core.api ++> web.desktop | web.main;
-    core.env ++> cli.commands.common { PROJECT_DIR }
+        core.env ++> cli.commands.common { PROJECT_DIR }
     core.git.repo ++> [
         cli.commands.browse { discover_prs, repo_info },
         cli.commands.common { resolve_repo },
@@ -20,8 +36,7 @@ graph import {
         cli.commands.ask { llm_ready },
         cli.commands.review { llm_ready, run_review },
     ]
-    core.site.desktop.BackendGate ++> web.desktop { BackendGate }
-    core.site.shell.AppShell ++> web.pages.layout { RootLayout }
+    core.site.shell.AppShell ++> pages.layout { RootLayout }
 }
 
 graph import cli {

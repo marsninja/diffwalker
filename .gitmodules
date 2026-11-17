@@ -1,4 +1,0 @@
-[submodule "jaseci"]
-	path = jaseci
-	url = https://github.com/marsninja/jac.git
-	branch = diffwalker-pin

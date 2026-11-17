@@ -1,4 +1,10 @@
-@import "tailwindcss";
+/* Tailwind reads class names from where the site's markup is, and nowhere
+ * else, so an edit to the backend bundles nothing. */
+@import "tailwindcss" source(none);
+@source "../../pages";
+@source "../../core/site";
+@source "../../core/native";
+@source "./index.html";
 @import "tw-animate-css";
 @import "@fontsource-variable/geist";
 
