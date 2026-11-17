@@ -2,7 +2,7 @@
 
 Tools run inside the streaming call, so they read and write the caller's graph directly;
 the model may batch them, and a round's calls run at once. The conversation is the
-caller-owned `history` list on the ChatThread node, as the model's API takes it;
+caller-owned `history` list on the ChatThread node, a list of stdjac.llm's `Message`;
 `trim_history` cuts the oldest turns once it grows. `turn_guard` stops a turn on the
 user's Stop button or when it passes its budget.
 """
@@ -11,7 +11,7 @@ import json;
 import threading;
 import contextvars;
 import from stdjac.by { ByEvent }
-import from stdjac.llm { IterationAction, IterationContext, llm }
+import from stdjac.llm { IterationAction, IterationContext, Message, PartKind, llm }
 
 obj AgentCtx {
     has repo: str = "",
@@ -83,36 +83,28 @@ def turn_guard(ctx: IterationContext) -> IterationAction {
     return IterationAction.CONTINUE;
 }
 
-"""Whether `message` opens a turn: something the user said, not the results of tools the
-model called (which the API also carries as the user's)."""
-def _opens_turn(message: dict[str, any]) -> bool {
-    if message.get("role") != "user" {
-        return False;
-    }
-    content = message.get("content");
-    if isinstance(content, list) {
-        for block in content {
-            if isinstance(block, dict) and block.get("type") == "tool_result" {
-                return False;
-            }
-        }
-    }
-    return True;
+"""Whether `message` begins a turn: what the user said, not a round's tool results."""
+def _opens_turn(message: Message) -> bool {
+    return message.role == "user"
+        and not any([p.kind == PartKind.TOOL_RESULT for p in message.parts]);
 }
 
-"""The most recent turns of `history` that fit in `limit` characters of JSON: whole turns
-only, each from what the user said to the model's last word on it, and never fewer than
-the latest one."""
-def trim_history(
-    history: list[dict[str, any]], limit: int = HISTORY_CHARS
-) -> list[dict[str, any]] {
+"""How much of the limit `message` takes: the characters of its parts."""
+def _size(message: Message) -> int {
+    return sum([len(p.text) + len(p.input) + len(p.name) + 16 for p in message.parts]);
+}
+
+"""The most recent turns of `history` that fit in `limit` characters: whole turns only,
+each from what the user said to the model's last word on it, and never fewer than the
+latest one."""
+def trim_history(history: list[Message], limit: int = HISTORY_CHARS) -> list[Message] {
     cut = len(history);
     used = 0;
     for i in range(len(history) - 1, -1, -1) {
+        used += _size(history[i]);
         if not _opens_turn(history[i]) {
             continue;
         }
-        used += len(json.dumps(history[i:cut]));
         if used > limit and cut < len(history) {
             break;
         }
@@ -539,7 +531,7 @@ glob TOOLS: list[any] = [
 
 """One turn, streamed: the model's words and its tool calls as they come. `history` is the
 conversation so far, which the call adds this turn to."""
-def copilot(request: str, ui_state: str, history: list[dict[str, any]]) -> Iterator[ByEvent] by llm(
+def copilot(request: str, ui_state: str, history: list[Message]) -> Iterator[ByEvent] by llm(
     tools=[
         navigate,
         open_pull_request,

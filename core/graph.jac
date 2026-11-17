@@ -11,6 +11,7 @@ chat threads, and the queries over it.
 import threading;
 import time;
 import uuid;
+import from stdjac.llm { Message }
 
 node Workspace {
     has active_repo: str = "",
@@ -106,7 +107,7 @@ node ChatThread {
         created: float = 0.0,
         updated: float = 0.0,
         transcript: list[ChatMsg] = [],
-        history: list[dict[str, any]] = [];
+        history: list[Message] = [];
 }
 
 edge HasRepo: Root --> Repo {}

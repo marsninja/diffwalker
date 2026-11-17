@@ -5,6 +5,7 @@ import json;
 import random;
 import from stdjac.by { ByEventKind, ByUsage }
 import from stdjac.codec { encode }
+import from stdjac.llm { Message }
 import from stdjac.remote { RemoteError }
 
 """What a UI command was given, as JSON of the arguments it sets."""
@@ -31,7 +32,7 @@ def run_ask_offline(repo: str, question: str) -> int {
             }
         },
     );
-    history: list[dict[str, any]] = [];
+    history: list[Message] = [];
     answering = False;
     usage = ByUsage();
     for ev in copilot(question, "terminal (diffwalker cli), no screen", history) {
