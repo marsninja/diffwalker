@@ -29,7 +29,7 @@ def build_parser -> argparse.ArgumentParser {
     parser.add_argument(
         "--server",
         default=DEFAULT_SERVER,
-        help="server for --live (default $DIFFWALKER_URL or http://localhost:8000)",
+        help="server for --live (default $DIFFWALKER_URL, else http://127.0.0.1:8000)",
     );
     parser.add_argument(
         "--json", dest="as_json", action="store_true", help="machine-readable output"

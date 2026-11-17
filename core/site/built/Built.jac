@@ -43,13 +43,13 @@ glob PIPELINE_STEPS: list[PipelineStep] = [
          ),
          PipelineStep(
              title="Plan: a lead reviewer assigns lenses",
-             body="plan_review has no body: by llm() returns a typed ReviewPlan. Priority 1 files are reviewed on their own; everything else is still reviewed, in batches. Bad JSON is re-asked with the schema (max_output_retries), not a failed stage.",
+             body="plan_review has no body: by llm() returns a typed ReviewPlan. Priority 1 files are reviewed on their own; everything else is still reviewed, in batches. A reply that does not fit the type is asked for again (max_output_retries), not a failed stage.",
              path="core/review/agents.jac",
              needle="def plan_review",
          ),
          PipelineStep(
-             title="Lenses: a walker fans every file out to flow workers",
-             body="ReviewRun visits each FileChange. Its entry ability parks a Job under a fresh key and starts a flow worker on it; the worker calls a Reviewer method, an obj whose fields are the prompt context and whose bound methods are the tools. Workers never touch the graph, so they need no request context.",
+             title="Lenses: a walker fans every file out to flow tasks",
+             body="ReviewRun visits each FileChange. Its entry ability queues a Job for the file, or adds the file to a batch of small ones; the walker's exit ability runs each Job as a flow task. The task calls a bodiless by function given the Reviewer, an obj whose fields are the prompt context and whose bound methods are the tools. Tasks never touch the graph, so nothing has to be handed back to the walker but their results.",
              path="core/review/engine.jac",
              needle="can lens with FileChange entry",
          ),
@@ -61,13 +61,13 @@ glob PIPELINE_STEPS: list[PipelineStep] = [
          ),
          PipelineStep(
              title="Investigate: the model chooses where to look",
-             body="For each flagged file an Investigate walker is spawned on its FileChange. visit [here-->][?:CodeRef] by llm(select=(1, 3)) shows the model each related-code edge with its sem string and lets it pick which to read; the walker reads those excerpts and they become the verifier's evidence.",
+             body="For each flagged file an Investigate walker is spawned on its FileChange. visit [here --> [?:CodeRef]] by llm(select=(1, 3)) shows the model each related-code node and the edge that leads to it, with their sem strings, and lets it pick which to read; the walker reads those excerpts and they become the verifier's evidence.",
              path="core/review/engine.jac",
-             needle="walker Investigate",
+             needle="walker:priv Investigate",
          ),
          PipelineStep(
-             title="Verify: per-file adversaries, in parallel",
-             body="Drafts are anchored to lines the diff shows and deduplicated in code, then verified per file (eight at a time, in parallel) with the investigator's evidence. Verdicts key on draft ids, so one bad reply cannot shift every decision.",
+             title="Verify: per-file adversaries",
+             body="Drafts are anchored to lines the diff shows and deduplicated in code, then verified per file, eight drafts to a call and each call a flow task, with the investigator's evidence. Verdicts key on draft ids, so one bad reply cannot shift every decision.",
              path="core/review/engine.jac",
              needle="def verify(rv: Review",
          ),
@@ -80,37 +80,37 @@ glob PIPELINE_STEPS: list[PipelineStep] = [
      ],
      AGENT_STEPS: list[AgentStep] = [
          AgentStep(
-             text="The pane posts the message and what you are looking at (page, pull request, filters) with your session token and opens an SSE stream.",
+             text="The pane calls copilot_stream with the message and what you are looking at (page, pull request, filters), as the signed-in user, and reads the frames it yields with async for.",
              path="core/site/copilot/CopilotPane.jac",
              needle="async for frame in copilot_stream(",
          ),
          AgentStep(
-             text="The endpoint reports a generator. Each step of it runs inside the caller's request context, so tools read and write the caller's own graph directly.",
+             text="The endpoint returns an Iterator[CopilotFrame], which makes it a stream: the server sends each frame as it is yielded. The turn runs on one thread as its caller, so tools read and write the caller's own graph directly.",
              path="core/api.jac",
              needle="def:protect copilot_stream",
          ),
          AgentStep(
-             text="copilot() has no body. by llm(tools=..., stream=True, logging=True, parallelize=True, compaction_enabled=True) builds the prompt from sem strings and the tool signatures.",
+             text="copilot() has no body. by llm(tools=[...], conversation=history, system_prompt=SYSTEM, parallelize=True) builds the request from sem strings and the tool signatures, and its Iterator[ByEvent] result makes the call a streamed one.",
              path="core/agent/copilot.jac",
              needle="def copilot(request",
          ),
          AgentStep(
-             text="The model answers with tool calls. Independent read-only lookups run in parallel; tools that write are marked sequential with mark_serialize.",
+             text="The model answers with tool calls. The calls of one round run at once, each on its own thread with the turn's context; a tool that writes takes a lock in core/actions.jac.",
              path="core/agent/copilot.jac",
              needle="def open_pull_request",
          ),
          AgentStep(
-             text="UI tools only describe intent; data tools read git or the graph; jac mcp adds validate_jac, lint_jac, and search_docs for Jac repositories.",
+             text="UI tools only describe intent; data tools read git or the graph, through the functions the pages' endpoints use.",
              path="core/agent/copilot.jac",
-             needle="def jac_tools",
+             needle="def repo_overview",
          ),
          AgentStep(
-             text="ui() publishes an event tagged with your user and browser session onto the live bus; only your own screens receive it.",
+             text="ui() adds an event tagged with your user and browser session to the live log; only your own screens are sent it.",
              path="core/live.jac",
              needle="def ui(",
          ),
          AgentStep(
-             text="AppShell's live subscription matches the session and turns the event into navigation, filters, toasts, or dialogs.",
+             text="AppShell reads the live stream, matches the session and turns the event into navigation, filters, toasts, or dialogs.",
              path="core/site/shell/AppShell.jac",
              needle="def:pub handle_ui_action",
          ),
@@ -120,17 +120,17 @@ glob PIPELINE_STEPS: list[PipelineStep] = [
              needle="def set_status",
          ),
          AgentStep(
-             text="Between ReAct steps, turn_guard stops the turn on your Stop button or when it passes its budget; byLLM then asks for a summary.",
+             text="Between rounds, turn_guard stops the turn on your Stop button or when it passes its budget; stdjac.llm then asks the model to answer with no more tool calls.",
              path="core/agent/copilot.jac",
              needle="def turn_guard",
          ),
          AgentStep(
-             text="Each StreamEvent becomes a compact frame: tool_call, tool_result, thought, card, chunk, usage (with cost).",
+             text="Each ByEvent becomes a compact frame: chunk, tool_call, tool_result, usage (tokens and cost); a card a tool rendered is a frame too.",
              path="core/api.jac",
              needle="def _frame",
          ),
          AgentStep(
-             text="When the model stops calling tools the answer streams; the conversation list persists on the ChatThread node and byLLM compacts it when it grows.",
+             text="When the model stops calling tools the answer streams; the conversation, a list of Message, is kept on the ChatThread node, and trim_history keeps its most recent turns when it grows.",
              path="core/api.jac",
              needle="t.history = history;",
          ),
@@ -138,35 +138,35 @@ glob PIPELINE_STEPS: list[PipelineStep] = [
      FEATURES: list[list[str]] = [
          [
              "by llm() + sem",
-             "Planner, reviewers, verifier, synthesizer, and Copilot are bodiless functions and methods with typed returns.",
+             "Planner, reviewers, verifier, synthesizer, and Copilot are bodiless functions with typed returns; their sem strings are the prompts.",
          ],
          [
              "Walkers as agents",
-             "ReviewRun fans files out from entry abilities and reduces in its exit ability; Investigate routes with visit by llm().",
+             "ReviewRun queues files from its entry abilities and reduces in its exit ability; Investigate routes with visit ... by llm().",
          ],
          [
              "Typed graph + queries",
-             "Review → FileChange → Finding/CodeRef; id lookups are one compiled query with promoted indexes.",
+             "Review → FileChange → Finding/CodeRef; an id lookup is one edge-reference query from the caller's root.",
          ],
          [
              "def:protect endpoints",
-             "Every endpoint runs on the caller's own root: per-user reviews and chats with no user-id plumbing.",
+             "Every endpoint runs on the caller's own root: per-user reviews and chats with no user-id plumbing. One that returns an Iterator is a stream.",
          ],
          [
              "flow / wait",
-             "Model calls run in flow workers over immutable jobs; only the walker touches the graph, so nothing is marshalled back.",
+             "Model calls are flow tasks over jobs that never change; only the walker touches the graph, so nothing is marshalled back.",
          ],
          [
-             "byLLM telemetry",
-             "A metered() scope bills every call to its review and stage; the UI shows tokens and dollars per stage.",
+             "on_usage metering",
+             "stdjac.llm reports the tokens of every request; a metered() scope bills them to their review and stage, and the UI shows tokens and dollars per stage.",
          ],
          [
              "mobUI",
-             "The phone below is View/Text/Pressable compiled to React Native, rendered here by react-native-web.",
+             "The phone below is View/Text/Pressable from @jac/mobui: React Native on a device, rendered here by react-native-web.",
          ],
          [
-             "One workspace, three apps",
-             "jac.toml declares web, mobile, and cli over a single core/ tree, wired in archwire.jac.",
+             "One project, four apps",
+             "archwire.jac declares web, desktop, mobile, and cli over a single core/ tree, and holds every import between modules as a wire.",
          ],
      ];
 
@@ -299,7 +299,7 @@ def:pub Built -> JsxElement {
                     An agentic code reviewer in one language.
                 </h1>
                 <p className="mt-4 text-base leading-relaxed text-muted-foreground sm:text-lg">
-                    diffwalker is a Jac workspace: a web app, a mobile app, and a CLI over one shared core. The reviewer is seven stages of typed functions, five of them delegated to a model with by llm(). The Copilot is one more such function with 29 tools, and every tool that changes your screen arrives as an event the UI applies live.
+                    diffwalker is one Jac project, built with neojac: a web app, a desktop app, a mobile app, and a CLI over one shared core. The reviewer is eight stages, six of which ask a model through by llm(). The Copilot is one more such function with 29 tools, and every tool that changes your screen arrives as an event the UI applies live.
                 </p>
                 <div className="mt-6 flex flex-wrap gap-2 text-xs">
                     {
@@ -326,12 +326,12 @@ def:pub Built -> JsxElement {
                         <StatTile
                             label="Jac source"
                             value={fmt_num(stats.jac_lines) + " lines"}
-                            hint={str(stats.jac_files) + " .jac files, zero .ts/.py"}
+                            hint={str(stats.jac_files) + " .jac files of app code"}
                         />
                         <StatTile
                             label="Endpoints"
                             value={str(stats.endpoints)}
-                            hint="def:pub functions, RPC generated"
+                            hint="def:protect functions, called as typed functions"
                         />
                         <StatTile
                             label="LLM functions"
@@ -350,13 +350,13 @@ def:pub Built -> JsxElement {
         <Section
             id="arch"
             eyebrow="Architecture"
-            title="Three apps, one core, no glue code"
-            lead="jac.toml declares three apps over a shared core/ tree. Where each declaration runs is inferred: JSX compiles to the browser bundle, subprocess and graph code stays on the server, and a client call to a def:pub function becomes a generated RPC stub with the server's types."
+            title="Four apps, one core, no glue code"
+            lead="archwire.jac declares the spaces code runs in (the site in a browser, the phone app, the server, the CLI) and the four apps made of them, over a shared core/ tree; the desktop app is the site in a window. core/api.jac is the server, and a page's call of one of its functions is an ordinary call, checked against the server's types and sent as a request."
         >
             <figure className="rounded-2xl border border-border bg-card/60 p-3 sm:p-5">
                 <ArchitectureDiagram />
                 <figcaption className="mt-3 text-xs text-muted-foreground">
-                    Solid violet edges carry the hot path: typed RPC in, SSE out, by llm() to the model. Dashed edges are optional routes: the phone uses the same stubs, and the CLI runs in-process or drives a running server with --live.
+                    Solid violet edges carry the hot path: typed calls in, streams out, by llm() to the model. Dashed edges are optional routes: the phone calls the same endpoints, and the CLI runs in-process or drives a running server with --live.
                 </figcaption>
             </figure>
             {
@@ -374,11 +374,11 @@ def:pub Built -> JsxElement {
                             />
                         </Panel>
                         <CodeSpotlight
-                            path="jac.toml"
-                            needle="[apps.web]"
+                            path="archwire.jac"
+                            needle="graph spaces {"
                             before={0}
-                            after={12}
-                            title="the workspace"
+                            after={14}
+                            title="the spaces and apps"
                         />
                     </div>
                 }
@@ -388,7 +388,7 @@ def:pub Built -> JsxElement {
             id="graph"
             eyebrow="Data model"
             title="State is a graph, and code walks it"
-            lead="Reviews are not rows in tables. Repo, PullRequest, Review, and Finding are nodes joined by typed edges under root, persisted automatically. Queries that span the hierarchy are walkers: CollectFindings carries its filter from node to node and gathers matches where they live."
+            lead="Reviews are not rows in tables. Repo, PullRequest, Review, and Finding are nodes joined by typed edges under each user's root, and the server keeps the graph with no storage code in the app. Queries that span the hierarchy are walkers: CollectFindings carries its filter from node to node and gathers matches where they live."
         >
             <figure className="rounded-2xl border border-border bg-card/60 p-3 sm:p-5">
                 <GraphDiagram />
@@ -406,7 +406,7 @@ def:pub Built -> JsxElement {
                 />
                 <CodeSpotlight
                     path="core/graph.jac"
-                    needle="walker CollectFindings"
+                    needle="walker:priv CollectFindings"
                     before={0}
                     after={28}
                     title="walker"
@@ -467,22 +467,22 @@ def:pub Built -> JsxElement {
             </div>
             <div className="mt-10 grid gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
                 <div><h3 className="text-lg font-semibold tracking-tight">
-                        Model calls in workers, graph writes in the walker
+                        Model calls in tasks, graph writes in the walker
                     </h3><p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                        Jac persists the graph per request. The review walker runs inside the request that started it, so it reads and writes nodes directly and calls commit() after every stage; other screens see each stage land. The model calls it fans out run in flow workers that read an immutable Job and return typed results, never touching the graph, so nothing has to be marshalled back.
+                        The server writes the graph when a call returns. A review is one long call, so its walker reads and writes nodes directly and calls commit() after every stage; other screens see each stage land. The model calls it fans out are flow tasks that read a Job nobody changes and return typed results, never touching the graph, so nothing has to be marshalled back.
                     </p></div>
                 <CodeSpotlight
                     path="core/review/engine.jac"
-                    needle="def run_job"
-                    before={1}
-                    after={14}
-                    title="run_job"
+                    needle="def review_job"
+                    before={2}
+                    after={18}
+                    title="review_job"
                 />
             </div>
             <figure className="mt-5 rounded-2xl border border-border bg-card/60 p-3 sm:p-5">
                 <WalkerDiagram />
                 <figcaption className="mt-3 text-xs text-muted-foreground">
-                    Entry abilities fan out, the exit ability reduces: workers only call the model, the walker owns every write.
+                    Entry abilities queue the files, the exit ability runs their reviewers and reduces: tasks only call the model, the walker owns every write.
                 </figcaption>
             </figure>
             <div className="mt-6 flex flex-wrap gap-2">
@@ -549,7 +549,7 @@ def:pub Built -> JsxElement {
             id="cli"
             eyebrow="CLI"
             title="The same engine from a terminal"
-            lead="cli/main.jac imports the core directly, so jac run cli works offline against any repository. With --live it posts to a running server instead, and the browser that has diffwalker open follows along."
+            lead="The cli app compiles the core into its own program, so neojac run cli reviews any repository in-process. With --live it calls a running server instead, and the browser that has diffwalker open follows along."
         >
             <div className="grid gap-5 lg:grid-cols-2">
                 <div
@@ -561,7 +561,7 @@ def:pub Built -> JsxElement {
                         diffwalker
                     </div>
                     <div className="space-y-1 p-4">
-                        <TerminalLine prompt={True} text="jac run cli -- review b-6fabbb2aff" />
+                        <TerminalLine prompt={True} text="neojac run cli -- review b-6fabbb2aff" />
                         <TerminalLine
                             prompt={False}
                             text="▸ review R-b8e9a1  Format the guard as the formatter has it"
@@ -589,12 +589,12 @@ def:pub Built -> JsxElement {
                         />
                         <TerminalLine
                             prompt={False}
-                            text="  ✓ review     2 files reviewed, 1 draft findings"
+                            text="  ✓ review     2/2 files reviewed (2 solo, 0 batches) · 1 drafts"
                             tone="#1baf7a"
                         />
                         <TerminalLine
                             prompt={False}
-                            text="      ✗ verifier dropped: New hardcoded depth cap of 32…"
+                            text="      ✗ dropped: New hardcoded depth cap of 32…"
                             tone="#e66767"
                         />
                         <TerminalLine
@@ -609,7 +609,7 @@ def:pub Built -> JsxElement {
                         />
                         <TerminalLine
                             prompt={True}
-                            text="jac run cli -- ask --live 'show me the people view; who owns the compiler?'"
+                            text="neojac run cli -- ask --live 'show me the people view; who owns the compiler?'"
                         />
                         <TerminalLine
                             prompt={False}

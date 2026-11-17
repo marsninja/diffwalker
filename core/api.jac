@@ -612,7 +612,7 @@ def:protect build_stats -> BuildStats {
                 s = l.strip();
                 if s.startswith("node ") {
                     out.nodes += 1;
-                } elif s.startswith("walker ") {
+                } elif (s.startswith("walker ") or s.startswith("walker:")) and s.endswith("{") {
                     out.walkers += 1;
                 }
             }

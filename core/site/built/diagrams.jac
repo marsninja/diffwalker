@@ -140,7 +140,7 @@ def:pub ArchitectureDiagram -> JsxElement {
         viewBox="0 0 1080 560"
         className="block h-auto w-full"
         role="img"
-        aria-label="Three apps share one core; clients call def:pub endpoints through generated RPC stubs and receive live updates over SSE; the server talks to git, gh, the model provider, and the graph store."
+        aria-label="Three apps share one core; clients call the endpoints as typed crossings and read live updates as a stream; the server talks to git, gh, the model provider, and the graph store."
     >
         <Arrowheads id="arch" />
         <Lane x={10} y={20} w={250} h={520} label="CLIENT APPS" />
@@ -176,7 +176,7 @@ def:pub ArchitectureDiagram -> JsxElement {
             w={200}
             h={64}
             title="api.jac"
-            sub="28 def:pub endpoints"
+            sub="28 typed endpoints"
             mono={True}
             accent={True}
         />
@@ -186,7 +186,7 @@ def:pub ArchitectureDiagram -> JsxElement {
             w={200}
             h={64}
             title="live.jac"
-            sub="event bus + context pump"
+            sub="event bus, one thread per call"
             mono={True}
         />
         <Box
@@ -240,7 +240,7 @@ def:pub ArchitectureDiagram -> JsxElement {
             w={220}
             h={64}
             title="LLM provider"
-            sub="via byLLM → litellm"
+            sub="via stdjac.llm"
             tone="var(--series-7)"
         />
         <Box
@@ -249,7 +249,7 @@ def:pub ArchitectureDiagram -> JsxElement {
             w={220}
             h={64}
             title="Graph store"
-            sub="embedded Postgres, per-request commit"
+            sub="one graph, kept in SQLite"
             tone="var(--series-1)"
         />
         <Box
@@ -269,7 +269,7 @@ def:pub ArchitectureDiagram -> JsxElement {
             marker="arch"
             hot={True}
         />
-        <Edge d="M328,105 L240,105" label="SSE frames" lx={284} ly={120} marker="arch" />
+        <Edge d="M328,105 L240,105" label="stream" lx={284} ly={120} marker="arch" />
         <Edge d="M240,255 L288,255 L288,118 L328,118" marker="arch" dashed={True} />
         <text x={135} y={318} fontSize={10.5} textAnchor="middle" fill="var(--ink-2)">
             same typed RPC stubs as web/
@@ -484,7 +484,7 @@ def:pub PipelineDiagram(active: int = -1) -> JsxElement {
         Stage(num="1", name="Ingest", note="git diff", llm=False),
         Stage(num="2", name="Triage", note="risk + CodeRefs", llm=False),
         Stage(num="3", name="Plan", note="lead LLM", llm=True),
-        Stage(num="4", name="Lenses", note="flow workers", llm=True),
+        Stage(num="4", name="Lenses", note="flow tasks", llm=True),
         Stage(num="5", name="Cross-file", note="LLM + grep", llm=True),
         Stage(num="6", name="Investigate", note="visit by llm()", llm=True),
         Stage(num="7", name="Verify", note="per-file LLMs", llm=True),
@@ -494,7 +494,7 @@ def:pub PipelineDiagram(active: int = -1) -> JsxElement {
         viewBox="0 0 1080 300"
         className="block h-auto w-full"
         role="img"
-        aria-label="Eight stages left to right; stage four fans out into parallel reviewers for every file; stage six lets the model route an investigator walker over related code; the verifier removes findings; the verdict follows from what survives."
+        aria-label="Eight stages left to right; stage four starts a reviewer task for every file; stage six lets the model route an investigator walker over related code; the verifier removes findings; the verdict follows from what survives."
     >
         <Arrowheads id="pipe" />
         {
@@ -661,21 +661,21 @@ def:pub AgentLoopDiagram(active: int = -1) -> JsxElement {
     lanes = [
         "Copilot pane",
         "copilot_stream",
-        "worker: byLLM ReAct",
+        "call: the model's tool loop",
         "Model",
         "tools",
         "live bus",
         "AppShell",
     ];
     msgs: list[Message] = [
-        Message(src=0, dst=1, label="POST message + ui_state (SSE)", y=92),
-        Message(src=1, dst=2, label="run_in_worker(pump)", y=122),
+        Message(src=0, dst=1, label="copilot_stream(message, ui_state)", y=92),
+        Message(src=1, dst=2, label="the call's own thread", y=122),
         Message(src=2, dst=3, label="prompt + 29 tool schemas", y=152),
         Message(src=3, dst=2, label="tool_call: open_pull_request", y=182),
         Message(src=2, dst=4, label="execute tool", y=212),
         Message(src=4, dst=5, label="ui(navigate, /reviews/…)", y=242),
-        Message(src=5, dst=6, label="SSE event (session match)", y=272),
-        Message(src=4, dst=1, label="graph write via pump.call()", y=302),
+        Message(src=5, dst=6, label="live event (session match)", y=272),
+        Message(src=4, dst=1, label="graph write, in the call", y=302),
         Message(src=2, dst=1, label="tool_call / tool_result frames", y=332),
         Message(src=1, dst=0, label="frames → chips, cards, tokens", y=362),
         Message(src=3, dst=2, label="final answer (streamed chunks)", y=392),
@@ -686,7 +686,7 @@ def:pub AgentLoopDiagram(active: int = -1) -> JsxElement {
         viewBox={"0 0 " + str(W) + " 430"}
         className="block h-auto w-full"
         role="img"
-        aria-label="Sequence of one Copilot turn: the pane streams a request; a worker runs byLLM's ReAct loop; tool calls emit UI events onto the live bus that the shell applies, while graph writes go back through the request context."
+        aria-label="Sequence of one Copilot turn: the pane streams a request; the call runs the model's tool loop; tool calls emit UI events onto the live bus that the shell applies, while graph writes go back through the request context."
     >
         <Arrowheads id="seq" />
         {
@@ -762,7 +762,7 @@ def:pub WalkerDiagram -> JsxElement {
         viewBox="0 0 1080 250"
         className="block h-auto w-full"
         role="img"
-        aria-label="The ReviewRun walker's entry abilities launch flow workers that only call the model; its Review exit ability, which runs after every file is visited, writes findings to the graph and commits stage by stage."
+        aria-label="The ReviewRun walker's entry abilities start flow tasks that only call the model; its Review exit ability, which runs after every file is visited, writes findings to the graph and commits stage by stage."
     >
         <Arrowheads id="walk" />
         <Lane
