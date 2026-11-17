@@ -16,6 +16,8 @@ defects is in this file's git history.
 All four apps build. The web app, the CLI (in-process and `--live`) and the
 desktop app's two modes were run end to end against a scripted stand-in for
 the model API (`ANTHROPIC_BASE_URL`), driving the site in headless Chromium.
+The web app and the desktop app were stopped and started again on the data
+they kept.
 The phone app was built but not run on a device. Nothing has been run against
 a real model yet.
 
@@ -43,6 +45,10 @@ branch.
 | The truth of a `str` that is `None`, in JavaScript | In a page, `if q.get("file")` was true when the key was missing: a `str`'s truth was a comparison with `""`, which `None` passes. | On a JavaScript host the truth of a `str`, a list, a dict and a set is false for `None`, as it is natively. | `core/site/review/ReviewWorkspace.jac` |
 | `async for` over a stream, in a page | A page could not read a stream endpoint with `async for`: what the call gave was not Jac's async iterator. | A JavaScript host's stream is Jac's async iterator. | `start_live` in `core/site/live.jac`; `core/site/copilot/CopilotPane.jac` |
 | A node space's calls from a server's call threads | Once calls ran on threads of their own, a call into a node space was made off the thread that started Node, and failed. neojac's own app tests found this; diffwalker has no node space. | A node space's calls are made on the thread that started Node, by the server's loop, for the call's own thread. | Not used |
+| `flow` tasks that run at once | A native program evaluated a `flow` task to its end at the `flow`, so the reviewers and the verifiers ran one after another, a stage's drafts reached the screens together when its last call ended, and the review's deadline could not cut a running reviewer short. | `flow f(args)` evaluates the callee and the arguments where it is written and runs the call on a thread of a pool the runtime keeps; `wait` runs a task no thread has taken. A task runs for the caller of the call that made it, with its context variables. | `ReviewRun.gather`, `cross` and `verify` in `core/review/engine.jac`: reviewers and verifiers overlap, and drafts reach the screens as each call ends. |
+| A lambda that captures nothing, evaluated often | Each evaluation of `lambda (x: T) -> ... { ... }` with nothing captured took 32 bytes that were never freed. Found while measuring the tasks above. | Such a lambda is one constant closure, as a named function's value is. | Every `key=lambda ...` and callback in the server. |
+| Starting again on kept data | The server could not start a second time: `web can't start with the data it kept ... holds 1 core.graph.Review ... whose types this program no longer has`. A module starts on its first use unless it serves an endpoint, the node types are declared in `core/graph.jac`, which serves none, and the store read its rows before that module had started. | A module that declares a node or an edge type the app keeps starts with the program. | `core/graph.jac` and `core/wire.jac`: the web app and the desktop app start again with their reviews. |
+| Memory that one thread allocates and another frees | A block freed by a thread that did not allocate it stayed with the freeing thread for ever, so a server that answers calls on threads grew with every call. | A small block goes back to the page it came from, and a large one past what a thread keeps is any thread's to take. | The server, under any load. |
 
 ## Open
 
@@ -54,7 +60,6 @@ its fix yet.
 
 | Defect or gap | Where it shows in diffwalker |
 | --- | --- |
-| A native program evaluates a `flow` task to its end at the `flow`. The language promises only that `wait` delivers the outcome, so the code is correct, but nothing overlaps. | `ReviewRun.gather`, `cross` and `verify` in `core/review/engine.jac`: the reviewers and verifiers run one after another, a stage's drafts reach the screens together when its last call ends, and the review's deadline cannot cut a running reviewer short. |
 | A task cannot be kept in a field: its type cannot be written (`list[Task[int]]` is E5090), and a field has to be typed. | `ReviewRun` cannot start a file's reviewer in its `FileChange` entry and wait for it in its `Review` exit. It queues the jobs in `pending` and starts every task in `gather`, in one comprehension whose type is inferred. |
 | A native caller gives a crossing 30 seconds (`RemoteTimeout`), and nothing lets a call say it runs longer. | `start_review` returns when the review ends. `start_on_server` in `cli/commands/review.jac` treats the timeout as "still running", follows the review on the live stream, and reads its outcome with `pr_detail`. |
 | A stream whose client has gone is dropped where it paused: a generator has no `close`, so nothing after its `yield` runs. | A Copilot turn whose pane closes mid-answer stops in `_turn` (`core/api.jac`) before the reply is added to the chat thread and the conversation is kept. |

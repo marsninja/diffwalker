@@ -235,7 +235,7 @@ A review is a `Review` node with the pipeline's own graph under it:
 7. **Verify.** Drafts are anchored to commentable diff lines and deduplicated in code, then verified per file, eight drafts to a call, each call a `flow` task, keyed by draft id.
 8. **Synthesize.** A typed `ReviewSummary` writes the prose. The verdict is recomputed from what survived: any high or critical finding means `request_changes`.
 
-`flow` and `wait` promise that `wait` delivers a task's outcome, not when the task runs. A native program today runs each task to its end at its `flow`, so the reviewers and the verifiers run one after another (see [DOGFOOD.md](DOGFOOD.md)).
+A `flow` of a call evaluates its arguments where it is written and runs the call on one of the runtime's threads, so the reviewers' and the verifiers' model calls overlap, and the walker takes each one's drafts as it finishes. Tasks only call the model; the walker alone touches the graph.
 
 Typed outputs re-ask the model on a reply that does not fit. `stdjac.llm` reports the tokens of every request (`on_usage`); `core/review/meter.jac` bills them to their review and stage, prices them by its table of model rates, and tells a reviewer to wrap up once the review passes `DIFFWALKER_REVIEW_BUDGET`. Without a model key the deterministic stages still run and produce a verdict.
 
@@ -367,10 +367,9 @@ diffwalker is written in the Jac that [neojac](https://github.com/marsninja/neoj
 
 - `by llm()` is neojac's `stdjac.llm`, which calls Anthropic's Messages API. Only Anthropic models work.
 - The desktop app's window exists for Linux only (GTK 3 with WebKitGTK 4.1).
-- A native program runs a `flow` task to its end at the `flow`, so a review's reviewers run one after another.
 - A native caller gives a call 30 seconds, and `start_review` returns when the review ends. `review --live` treats the timeout as "still running" and follows the review on the live stream.
 
-What has been run: all four apps build. The web app, the CLI (in-process and `--live`) and the desktop app's two modes were run end to end against a scripted stand-in for the model API (`ANTHROPIC_BASE_URL`), driving the site in headless Chromium. The phone app was built but not run on a device. Nothing has been run against a real model yet.
+What has been run: all four apps build. The web app, the CLI (in-process and `--live`) and the desktop app's two modes were run end to end against a scripted stand-in for the model API (`ANTHROPIC_BASE_URL`), driving the site in headless Chromium, and the web and desktop apps were stopped and started again on the data they kept. The phone app was built but not run on a device. Nothing has been run against a real model yet.
 
 ## License
 
