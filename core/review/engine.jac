@@ -4,9 +4,9 @@
                                   --Raised--> Finding
 
 `ReviewRun` is spawned on a fresh Review node. Its Review entry ingests, triages, and
-plans; its FileChange entry queues each file's specialist reviewer (or adds the file to a
-batch of small ones); its Review exit, which fires once every file has been visited, runs
-the queued reviewers as `flow` tasks and gathers them as they finish, anchors and dedupes
+plans; its FileChange entry starts each file's specialist reviewer as a `flow` task (or adds
+the file to a batch of small ones); its Review exit, which fires once every file has been
+visited, gathers the reviewers as they finish, anchors and dedupes
 their drafts in code, runs the cross-file pass, spawns an `Investigate` walker per flagged
 file (the model routes it over the CodeRef neighbourhood with `visit ... by llm()`),
 verifies per file in parallel, enforces the verdict rule, and synthesizes. Model calls
@@ -89,10 +89,17 @@ obj Job {
         reviewer: Reviewer = Reviewer(repo="", ref="", repo_name="", intent="");
 }
 
-"""What the walker keeps about a job it runs: the job, and the drafts it is about."""
+"""A reviewer the walker has started: its job and its task."""
 obj Pending {
     has job: Job,
-        drafts: list[Draft] = [];
+        task: Task[BatchReview];
+}
+
+"""A verifier the walker has started: its job, the drafts it is about, and its task."""
+obj Check {
+    has job: Job,
+        drafts: list[Draft],
+        task: Task[list[Verdict]];
 }
 
 """Review one file, or a batch of small ones, in a task: a pure model call, billed to its
@@ -322,6 +329,7 @@ walker:priv ReviewRun {
         commits: list[CommitInfo] = [],
         drafts: list[Draft] = [],
         pending: list[Pending] = [],
+        finished: queue.Queue[int] = queue.Queue(),
         batch: list[str] = [],
         solo: int = 0,
         t0: float = 0.0,
@@ -555,17 +563,15 @@ walker:priv ReviewRun {
         if here.priority == 1 and self.solo < MAX_SOLO {
             self.solo += 1;
             here.state = "reviewing";
-            self.pending.append(
-                Pending(
-                    job=Job(
-                        kind="file",
-                        paths=[here.path],
-                        lenses=here.lenses or ["correctness"],
-                        patch=render_file_patch(f, 9000),
-                        signals=here.signals[:4],
-                        meter=self.meter,
-                        reviewer=self.reviewer,
-                    ),
+            self.submit(
+                Job(
+                    kind="file",
+                    paths=[here.path],
+                    lenses=here.lenses or ["correctness"],
+                    patch=render_file_patch(f, 9000),
+                    signals=here.signals[:4],
+                    meter=self.meter,
+                    reviewer=self.reviewer,
                 ),
             );
             return;
@@ -584,21 +590,27 @@ walker:priv ReviewRun {
         }
         names = list(self.batch);
         self.batch = [];
-        self.pending.append(
-            Pending(
-                job=Job(
-                    kind="batch",
-                    paths=names,
-                    patch="\n\n".join([render_file_patch(self.diffs[p], 3000) for p in names]),
-                    meter=self.meter,
-                    reviewer=self.reviewer,
-                ),
+        self.submit(
+            Job(
+                kind="batch",
+                paths=names,
+                patch="\n\n".join([render_file_patch(self.diffs[p], 3000) for p in names]),
+                meter=self.meter,
+                reviewer=self.reviewer,
             ),
         );
     }
 
-    """Run every queued reviewer as a task and take each one's drafts as it finishes, until
-    the review's deadline: a task tells `finished` its number when it ends."""
+    """Start `job`'s reviewer as a task, where its file is visited: it tells `finished`
+    its number when it ends, and `gather` takes its drafts then."""
+    def submit(job: Job) {
+        n = len(self.pending);
+        self.pending.append(Pending(job=job, task=flow review_and_tell(job, self.finished, n)));
+    }
+
+    """Take each reviewer's drafts as its task finishes, until the review's deadline: the
+    tasks were started as their files were visited, and each tells `finished` its number
+    when it ends."""
     def gather(rv: Review) {
         self.launch_batch();
         if not self.pending {
@@ -610,26 +622,24 @@ walker:priv ReviewRun {
             );
             return;
         }
-        finished: queue.Queue[int] = queue.Queue();
-        tasks = [flow review_and_tell(p.job, finished, n) for (n, p) in enumerate(self.pending)];
         done = 0;
         deadline = time.time() + max(30.0, REVIEW_DEADLINE - (time.time() - self.t0));
-        while done < len(tasks) {
+        while done < len(self.pending) {
             try {
-                n = finished.get(timeout=max(0.0, deadline - time.time()));
+                n = self.finished.get(timeout=max(0.0, deadline - time.time()));
             } except queue.Empty {
                 self.feed(
                     rv,
                     "warn",
                     "Reviewers ran past the deadline",
-                    f"{len(tasks) - done} calls abandoned",
+                    f"{len(self.pending) - done} calls abandoned",
                 );
                 break;
             }
             job = self.pending[n].job;
             done += 1;
             try {
-                result = wait tasks[n];
+                result = wait self.pending[n].task;
             } except Exception as e {
                 for p in job.paths {
                     self.nodes[p].state = "failed";
@@ -681,7 +691,7 @@ walker:priv ReviewRun {
                 rv,
                 "review",
                 "running",
-                f"{done}/{len(tasks)} reviewer calls back · {len(self.drafts)} drafts",
+                f"{done}/{len(self.pending)} reviewer calls back · {len(self.drafts)} drafts",
             );
         }
         reviewed = len([n for n in self.nodes.values() if n.state == "reviewed"]);
@@ -689,7 +699,7 @@ walker:priv ReviewRun {
             rv,
             "review",
             "done",
-            f"{reviewed}/{len(self.nodes)} files reviewed ({self.solo} solo, {len(tasks) - self.solo} batches) · {len(self.drafts)} drafts",
+            f"{reviewed}/{len(self.nodes)} files reviewed ({self.solo} solo, {len(self.pending) - self.solo} batches) · {len(self.drafts)} drafts",
         );
     }
 
@@ -812,7 +822,7 @@ walker:priv ReviewRun {
             );
             return 0;
         }
-        checks: list[Pending] = [];
+        checks: list[Check] = [];
         for p in sorted(set([d.path for d in self.drafts])) {
             mine = [d for d in self.drafts if d.path == p];
             for i in range(0, len(mine), VERIFY_BATCH) {
@@ -842,18 +852,17 @@ walker:priv ReviewRun {
                     meter=self.meter,
                     reviewer=self.reviewer,
                 );
-                checks.append(Pending(job=job, drafts=chunk));
+                checks.append(Check(job=job, drafts=chunk, task=flow verify_job(job)));
             }
         }
-        tasks = [flow verify_job(c.job) for c in checks];
         dropped = 0;
         unverified = 0;
         survivors: list[Draft] = [];
-        for (n, check) in enumerate(checks) {
+        for check in checks {
             chunk = check.drafts;
             verdicts: list[Verdict] = [];
             try {
-                verdicts = wait tasks[n];
+                verdicts = wait check.task;
             } except Exception as e {
                 unverified += len(chunk);
                 self.feed(
