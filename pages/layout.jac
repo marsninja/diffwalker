@@ -1,3 +1,3 @@
 def:pub layout -> JsxLayout {
-    return <RootLayout/>;
+    return <RootLayout />;
 }

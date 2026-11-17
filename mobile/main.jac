@@ -1,3 +1,3 @@
 def:pub app -> JsxElement {
-    return <DiffwalkerMobile/>;
+    return <DiffwalkerMobile />;
 }

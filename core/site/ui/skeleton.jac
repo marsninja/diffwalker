@@ -1,8 +1,8 @@
-def:pub Skeleton(props: any) -> JsxElement {
-    attrs: dict[str, any] = {** props};
-    <div
-        {**attrs}
+def:pub Skeleton(**kwargs: any) -> JsxElement {
+    attrs: dict[str, any] = {**kwargs};
+    return <div
+        {...attrs}
         data-slot="skeleton"
-        className={cn("bg-muted rounded-md animate-pulse", props["className"])}
-    />
+        className={cn("bg-muted rounded-md animate-pulse", kwargs.get("className"))}
+    />;
 }

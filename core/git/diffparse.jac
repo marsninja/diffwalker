@@ -1,76 +1,49 @@
-obj DiffLine {
-    has kind: str = "ctx",
-        old_no: int = 0,
-        new_no: int = 0,
-        text: str = "";
-}
-
-obj Hunk {
-    has header: str = "",
-        old_start: int = 0,
-        old_len: int = 0,
-        new_start: int = 0,
-        new_len: int = 0,
-        lines: list[DiffLine] = [];
-}
-
-obj FileDiff {
-    has path: str = "",
-        old_path: str = "",
-        status: str = "modified",
-        additions: int = 0,
-        deletions: int = 0,
-        binary: bool = False,
-        language: str = "",
-        hunks: list[Hunk] = [],
-        truncated: bool = False;
-}
-
+"""Unified diffs: parsing git's output into files, hunks and lines, and printing a file's patch."""
 glob LANGUAGES: dict[str, str] = {
-         "jac": "Jac",
-         "py": "Python",
-         "pyi": "Python",
-         "ts": "TypeScript",
-         "tsx": "TypeScript",
-         "js": "JavaScript",
-         "jsx": "JavaScript",
-         "mjs": "JavaScript",
-         "cjs": "JavaScript",
-         "rs": "Rust",
-         "go": "Go",
-         "c": "C",
-         "h": "C",
-         "cc": "C++",
-         "cpp": "C++",
-         "hpp": "C++",
-         "zig": "Zig",
-         "java": "Java",
-         "kt": "Kotlin",
-         "swift": "Swift",
-         "rb": "Ruby",
-         "php": "PHP",
-         "cs": "C#",
-         "md": "Markdown",
-         "mdx": "Markdown",
-         "rst": "Docs",
-         "txt": "Text",
-         "json": "JSON",
-         "toml": "TOML",
-         "yaml": "YAML",
-         "yml": "YAML",
-         "css": "CSS",
-         "scss": "CSS",
-         "html": "HTML",
-         "sh": "Shell",
-         "bash": "Shell",
-         "zsh": "Shell",
-         "sql": "SQL",
-         "lock": "Lockfile",
-         "svg": "SVG",
-         "ll": "LLVM IR",
-         "proto": "Protobuf",
-         "dockerfile": "Docker"
-     };
+    "jac": "Jac",
+    "py": "Python",
+    "pyi": "Python",
+    "ts": "TypeScript",
+    "tsx": "TypeScript",
+    "js": "JavaScript",
+    "jsx": "JavaScript",
+    "mjs": "JavaScript",
+    "cjs": "JavaScript",
+    "rs": "Rust",
+    "go": "Go",
+    "c": "C",
+    "h": "C",
+    "cc": "C++",
+    "cpp": "C++",
+    "hpp": "C++",
+    "zig": "Zig",
+    "java": "Java",
+    "kt": "Kotlin",
+    "swift": "Swift",
+    "rb": "Ruby",
+    "php": "PHP",
+    "cs": "C#",
+    "md": "Markdown",
+    "mdx": "Markdown",
+    "rst": "Docs",
+    "txt": "Text",
+    "json": "JSON",
+    "toml": "TOML",
+    "yaml": "YAML",
+    "yml": "YAML",
+    "css": "CSS",
+    "scss": "CSS",
+    "html": "HTML",
+    "sh": "Shell",
+    "bash": "Shell",
+    "zsh": "Shell",
+    "sql": "SQL",
+    "lock": "Lockfile",
+    "svg": "SVG",
+    "ll": "LLVM IR",
+    "proto": "Protobuf",
+    "dockerfile": "Docker",
+};
 
 def language_of(path: str) -> str {
     name = path.rsplit("/", 1)[-1].lower();
@@ -98,7 +71,7 @@ def _hunk_numbers(header: str) -> list[int] {
             int(old[0]),
             int(old[1]) if len(old) > 1 else 1,
             int(new[0]),
-            int(new[1]) if len(new) > 1 else 1
+            int(new[1]) if len(new) > 1 else 1,
         ];
     } except Exception {
         out = [0, 0, 0, 0];
@@ -114,16 +87,16 @@ def _strip_prefix(p: str) -> str {
 }
 
 glob _ESCAPES: dict[str, int] = {
-         "n": 10,
-         "t": 9,
-         "r": 13,
-         "\"": 34,
-         "\\": 92,
-         "a": 7,
-         "b": 8,
-         "f": 12,
-         "v": 11
-     };
+    "n": 10,
+    "t": 9,
+    "r": 13,
+    "\"": 34,
+    "\\": 92,
+    "a": 7,
+    "b": 8,
+    "f": 12,
+    "v": 11,
+};
 
 """Undo git's path quoting: a C-quoted string with octal escapes for non-ASCII bytes."""
 def unquote_path(raw: str) -> str {
@@ -170,7 +143,7 @@ def _header_paths(rest: str) -> list[str] {
         if end > 0 {
             return [
                 _strip_prefix(unquote_path(rest[:end + 1])),
-                _strip_prefix(unquote_path(rest[end + 2:]))
+                _strip_prefix(unquote_path(rest[end + 2:])),
             ];
         }
     }
@@ -238,11 +211,7 @@ def parse_unified_diff(text: str, max_lines_per_file: int = 1500) -> list[FileDi
         if raw.startswith("@@") and not in_hunk {
             nums = _hunk_numbers(raw);
             hunk = Hunk(
-                header=raw,
-                old_start=nums[0],
-                old_len=nums[1],
-                new_start=nums[2],
-                new_len=nums[3]
+                header=raw, old_start=nums[0], old_len=nums[1], new_start=nums[2], new_len=nums[3]
             );
             old_no = nums[0];
             new_no = nums[2];
@@ -283,9 +252,7 @@ def parse_unified_diff(text: str, max_lines_per_file: int = 1500) -> list[FileDi
             old_left -= 1;
             new_left -= 1;
             if shown < max_lines_per_file {
-                hunk.lines.append(
-                    DiffLine(kind="ctx", old_no=old_no, new_no=new_no, text=raw[1:])
-                );
+                hunk.lines.append(DiffLine(kind="ctx", old_no=old_no, new_no=new_no, text=raw[1:]));
             }
             old_no += 1;
             new_no += 1;
@@ -319,18 +286,10 @@ def render_file_patch(f: FileDiff, max_chars: int = 9000) -> str {
 }
 
 def changed_new_lines(f: FileDiff) -> list[int] {
-    return [
-        ln.new_no for h in f.hunks
-        for ln in h.lines
-        if ln.kind == "add"
-    ];
+    return [ln.new_no for h in f.hunks for ln in h.lines if ln.kind == "add"];
 }
 
 """New-side line numbers a comment may anchor to: added lines and the context shown around them."""
 def commentable_lines(f: FileDiff) -> list[int] {
-    return [
-        ln.new_no for h in f.hunks
-        for ln in h.lines
-        if ln.kind != "del" and ln.new_no > 0
-    ];
+    return [ln.new_no for h in f.hunks for ln in h.lines if ln.kind != "del" and ln.new_no > 0];
 }

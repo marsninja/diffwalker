@@ -1,12 +1,19 @@
 """Graph mutations shared by the HTTP endpoints and the Copilot's tools.
 
 One implementation per action, so a button and the agent can never drift apart.
-Each runs in the caller's request context, commits, and tells the caller's screens.
+Each runs for the caller of the call it is in, commits, and tells the caller's screens.
+The server answers calls at once, so an action holds `_acting` while it reads and writes:
+two that touch one finding apply in turn.
 """
+import threading;
+import from stdjac.graph { commit }
+
+glob _acting: threading.Lock = threading.Lock();
+
 def _manual_review(pr_n: PullRequest, repo: str, pr_id: str, source: str) -> Review {
-    rv = review_of(pr_n, "done");
-    if rv {
-        return rv;
+    latest = review_of(pr_n, "done");
+    if latest is not None {
+        return latest;
     }
     rv = Review(
         id=new_id("R"),
@@ -17,7 +24,7 @@ def _manual_review(pr_n: PullRequest, repo: str, pr_id: str, source: str) -> Rev
         summary="Comments added by hand.",
         started=now(),
         finished=now(),
-        trigger=source
+        trigger=source,
     );
     pr_n +>:HasReview:+> rv;
     return rv;
@@ -34,7 +41,7 @@ def add_finding(
     title: str,
     body: str,
     suggestion: str,
-    source: str
+    source: str,
 ) -> Finding | None {
     diffs = {f.path: f for f in parse_unified_diff(pr_diff_text(repo, pr))};
     d = Draft(
@@ -43,77 +50,111 @@ def add_finding(
         line=line,
         end_line=line,
         severity=severity if severity in SEVERITIES else "medium",
-        category=category if category in CATEGORIES else "correctness"
+        category=category if category in CATEGORIES else "correctness",
     );
     if not anchor(d, diffs) {
         return None;
     }
     info = repo_info(repo);
-    pr_n = ensure_pr(ensure_repo(info.path, info.name), pr.id, pr.kind, pr.title, pr.head, pr.base, pr.author, pr.url, pr.number);
-    rv = _manual_review(pr_n, info.path, pr.id, source);
-    fc = file_change(rv, d.path);
-    if fc is None {
-        f = diffs[d.path];
-        fc = FileChange(path=f.path, old_path=f.old_path, status=f.status, language=f.language, additions=f.additions, deletions=f.deletions, state="reviewed");
-        rv +>:Covers:+> fc;
+    with _acting {
+        pr_n = ensure_pr(
+            ensure_repo(info.path, info.name),
+            pr.id,
+            pr.kind,
+            pr.title,
+            pr.head,
+            pr.base,
+            pr.author,
+            pr.url,
+            pr.number,
+        );
+        rv = _manual_review(pr_n, info.path, pr.id, source);
+        fc = file_change(rv, d.path);
+        if fc is None {
+            f = diffs[d.path];
+            fc = FileChange(
+                path=f.path,
+                old_path=f.old_path,
+                status=f.status,
+                language=f.language,
+                additions=f.additions,
+                deletions=f.deletions,
+                state="reviewed",
+            );
+            rv +>:Covers:+> fc;
+        }
+        made = Finding(
+            id=new_id("F"),
+            review_id=rv.id,
+            pr_id=pr.id,
+            path=d.path,
+            line=d.line,
+            end_line=d.line,
+            severity=d.severity,
+            category=d.category,
+            title=title,
+            body=body,
+            suggestion=suggestion,
+            source=source,
+            verified=True,
+            anchored=d.anchored,
+            created=now(),
+        );
+        fc +>:Raised:+> made;
+        fc.findings += 1;
+        refresh_pr_rollup(pr_n);
+        commit();
     }
-    made = Finding(
-        id=new_id("F"),
-        review_id=rv.id,
-        pr_id=pr.id,
-        path=d.path,
-        line=d.line,
-        end_line=d.line,
-        severity=d.severity,
-        category=d.category,
-        title=title,
-        body=body,
-        suggestion=suggestion,
-        source=source,
-        verified=True,
-        anchored=d.anchored,
-        created=now()
-    );
-    fc +>:Raised:+> made;
-    fc.findings += 1;
-    refresh_pr_rollup(pr_n);
-    commit();
-    changed("finding", {"pr_id": pr.id, "finding": finding_dict(made)});
+    changed("finding", pr_id=pr.id, id=made.id);
     return made;
 }
 
 def set_status(finding_id: str, status: str, note: str, author: str) -> Finding | None {
-    f = find_finding(finding_id.strip());
-    if f is None or status not in ("open", "resolved", "dismissed") {
-        return None;
+    with _acting {
+        f = find_finding(finding_id.strip());
+        if f is None or status not in ("open", "resolved", "dismissed") {
+            return None;
+        }
+        f.status = status;
+        if note.strip() {
+            f.replies = f.replies + [Reply(author=author, text=note.strip(), ts=now())];
+        }
+        touch_rollup(f);
+        commit();
     }
-    f.status = status;
-    if note.strip() {
-        f.replies = f.replies + [Reply(author=author, text=note.strip(), ts=now())];
-    }
-    touch_rollup(f);
-    commit();
-    changed("finding", {"pr_id": f.pr_id, "finding": finding_dict(f)});
+    changed("finding", pr_id=f.pr_id, id=f.id);
     return f;
 }
 
 def add_reply(finding_id: str, text: str, author: str) -> Finding | None {
-    f = find_finding(finding_id.strip());
-    if f is None or not text.strip() {
-        return None;
+    with _acting {
+        f = find_finding(finding_id.strip());
+        if f is None or not text.strip() {
+            return None;
+        }
+        f.replies = f.replies + [Reply(author=author, text=text.strip(), ts=now())];
+        commit();
     }
-    f.replies = f.replies + [Reply(author=author, text=text.strip(), ts=now())];
-    commit();
-    changed("finding", {"pr_id": f.pr_id, "finding": finding_dict(f)});
+    changed("finding", pr_id=f.pr_id, id=f.id);
     return f;
 }
 
 def pin_insight(repo: str, title: str, kind: str, caption: str, spec: str) -> Insight {
     info = repo_info(repo);
-    ins = Insight(id=new_id("I"), title=title, kind=kind, caption=caption, spec=spec, created=now(), pinned=True);
-    ensure_repo(info.path, info.name) +>:Pinned:+> ins;
-    commit();
-    changed("insight", {"id": ins.id});
+    ins = Insight(
+        id=new_id("I"),
+        title=title,
+        kind=kind,
+        caption=caption,
+        spec=spec,
+        created=now(),
+        pinned=True,
+    );
+    with _acting {
+        ensure_repo(info.path, info.name) +>:Pinned:+> ins;
+        commit();
+    }
+    changed("insight", id=ins.id);
     return ins;
 }
 
@@ -122,11 +163,13 @@ def unpin_insight(repo: str, insight_id: str) -> bool {
     if r is None {
         return False;
     }
-    for ins in [r->:Pinned:->][?:Insight, id == insight_id] {
-        del ins;
-        commit();
-        changed("insight", {"id": insight_id});
-        return True;
+    with _acting {
+        for ins in [r ->:Pinned:->][?:Insight, id == insight_id] {
+            del ins;
+            commit();
+            changed("insight", id=insight_id);
+            return True;
+        }
     }
     return False;
 }
@@ -138,11 +181,13 @@ def choose_repo(path: str) -> str {
         return "";
     }
     info = repo_info(top);
-    ws = workspace();
-    ws.active_repo = top;
-    ws.recent = [top] + [r for r in ws.recent if r != top][:7];
-    ensure_repo(top, info.name);
-    commit();
-    changed("repo", {"path": top});
+    with _acting {
+        ws = workspace();
+        ws.active_repo = top;
+        ws.recent = [top] + [r for r in ws.recent if r != top][:7];
+        ensure_repo(top, info.name);
+        commit();
+    }
+    changed("repo", path=top);
     return top;
 }

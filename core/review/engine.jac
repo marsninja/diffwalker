@@ -1,24 +1,25 @@
-import os;
-import time;
-import tomllib;
-import from concurrent.futures { as_completed }
-import from jaclang.runtime.exceptions { WriteConflict }
-
 """The review pipeline, written as walkers over the review's own graph.
 
     Review --Covers--> FileChange --CalledFrom/TestedBy/ChangesWith--> CodeRef
                                   --Raised--> Finding
 
 `ReviewRun` is spawned on a fresh Review node. Its Review entry ingests, triages, and
-plans; its FileChange entry launches each file's specialist reviewer into a `flow`
-worker (or into a batch of small files); its Review exit, which fires once every file
-has been visited, gathers the results, anchors and dedupes them in code, runs the
-cross-file pass, spawns an `Investigate` walker per flagged file (the model routes it
-over the CodeRef neighbourhood with `visit ... by llm()`), verifies per file in
-parallel, enforces the verdict rule, and synthesizes. Model calls happen in workers
-and never touch the graph; every graph write happens in the walker and is committed
-stage by stage so other screens can follow along.
+plans; its FileChange entry queues each file's specialist reviewer (or adds the file to a
+batch of small ones); its Review exit, which fires once every file has been visited, runs
+the queued reviewers as `flow` tasks and gathers them as they finish, anchors and dedupes
+their drafts in code, runs the cross-file pass, spawns an `Investigate` walker per flagged
+file (the model routes it over the CodeRef neighbourhood with `visit ... by llm()`),
+verifies per file in parallel, enforces the verdict rule, and synthesizes. Model calls
+happen in tasks and never touch the graph; every graph write happens in the walker and is
+committed stage by stage so other screens can follow along.
 """
+import os;
+import queue;
+import time;
+import from stdjac.graph { commit }
+import from stdjac.llm { DEFAULT_MODEL, llm }
+import from stdjac.plan { setting_of }
+
 glob STAGES: list[list[str]] = [
          ["ingest", "Ingest diff"],
          ["triage", "Risk triage"],
@@ -27,7 +28,7 @@ glob STAGES: list[list[str]] = [
          ["cross", "Cross-file analysis"],
          ["investigate", "Investigate context"],
          ["verify", "Adversarial verify"],
-         ["synthesize", "Synthesize verdict"]
+         ["synthesize", "Synthesize verdict"],
      ],
      MAX_SOLO: int = 8,
      BATCH_FILES: int = 6,
@@ -37,48 +38,21 @@ glob STAGES: list[list[str]] = [
      ANCHOR_SLACK: int = 8,
      REVIEW_DEADLINE: float = float(os.environ.get("DIFFWALKER_REVIEW_DEADLINE", "900") or 900),
      SKIP_KINDS: list[str] = ["generated"],
-     ACTIVE: dict[str, str] = {},
-     _model: list[str] = [""];
+     ACTIVE: dict[str, str] = {};
 
-"""The model jac.toml configures for `by llm()`; the one place it is named."""
+"""The model `by llm()` asks, chosen as `stdjac.llm` chooses it: `JAC_LLM_MODEL`, else
+jac.toml's `[llm] model`, else its default."""
 def model_name -> str {
-    if not _model[0] {
-        name = os.environ.get("BYLLM_DEFAULT_MODEL", "");
-        if not name {
-            try {
-                with open(os.path.join(PROJECT_DIR, "jac.toml"), "rb") as fh {
-                    cfg = tomllib.load(fh);
-                }
-                name = str(((cfg.get("byllm") or {}).get("model") or {}).get("default_model", ""));
-            } except Exception {
-                name = "";
-            }
-        }
-        _model[0] = name or "gpt-4o-mini";
-    }
-    return _model[0];
+    return os.environ.get("JAC_LLM_MODEL", setting_of("llm.model", DEFAULT_MODEL));
 }
 
 def model_label -> str {
     return model_name().split("/")[-1];
 }
 
-"""Whether the configured provider has credentials, checked per provider."""
+"""Whether the model's API has its key."""
 def llm_ready -> bool {
-    m = model_name().lower();
-    if m.startswith(("ollama/", "local:", "hosted_vllm/")) {
-        return True;
-    }
-    if m.startswith("anthropic/") or m.startswith("claude") {
-        return bool(os.environ.get("ANTHROPIC_API_KEY"));
-    }
-    if m.startswith(("gemini/", "google/")) {
-        return bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"));
-    }
-    if m.startswith("systemone:") {
-        return bool(os.environ.get("TYPESAFE_API_KEY"));
-    }
-    return bool(os.environ.get("OPENAI_API_KEY"));
+    return bool(os.environ.get("ANTHROPIC_API_KEY"));
 }
 
 obj Draft {
@@ -100,8 +74,8 @@ obj Draft {
         looked_at: list[str] = [];
 }
 
-"""The inputs of one model call. Jobs are stored once under a fresh key and never changed,
-so a `flow` worker can read its job lazily without racing the walker."""
+"""The inputs of one model call. A job is made once and never changed, so the `flow` task
+that runs it and the walker that made it may both hold it."""
 obj Job {
     has kind: str = "file",
         paths: list[str] = [],
@@ -115,68 +89,77 @@ obj Job {
         reviewer: Reviewer = Reviewer(repo="", ref="", repo_name="", intent="");
 }
 
-"""What the walker keeps about a job in flight."""
+"""What the walker keeps about a job it runs: the job, and the drafts it is about."""
 obj Pending {
-    has kind: str = "file",
-        paths: list[str] = [],
-        drafts: list[Draft] = [],
-        future: any = None;
+    has job: Job,
+        drafts: list[Draft] = [];
 }
 
-"""Run one job in a worker: a pure model call, billed to its stage, touching no graph."""
-def run_job(job: Job) -> any {
+"""Review one file, or a batch of small ones, in a task: a pure model call, billed to its
+stage, touching no graph. A file's review comes back in a batch's shape."""
+def review_job(job: Job) -> BatchReview {
     if job.kind == "file" {
-        return metered(job.meter, "review", job.reviewer.review_file, job.paths[0], job.lenses, job.patch, job.signals);
+        one = metered(
+            job.meter,
+            "review",
+            lambda -> FileReview {
+                return review_file(job.reviewer, job.paths[0], job.lenses, job.patch, job.signals);
+            },
+        );
+        return BatchReview(
+            files=[FileSummary(path=job.paths[0], summary=one.summary)], findings=one.findings
+        );
     }
-    if job.kind == "batch" {
-        return metered(job.meter, "review", job.reviewer.review_batch, job.paths, job.patch);
+    return metered(
+        job.meter,
+        "review",
+        lambda -> BatchReview { return review_batch(job.reviewer, job.paths, job.patch); },
+    );
+}
+
+"""review_job, telling `finished` its number `n` once it has ended, however it ended."""
+def review_and_tell(job: Job, finished: queue.Queue[int], n: int) -> BatchReview {
+    try {
+        return review_job(job);
+    } finally {
+        finished.put(n);
     }
-    if job.kind == "cross" {
-        return metered(job.meter, "cross", job.reviewer.cross_file_review, job.patch, job.signals);
-    }
-    return metered(job.meter, "verify", verify_file, job.intent, job.paths[0], job.patch, job.checks, job.context);
+}
+
+def cross_job(job: Job) -> list[DraftFinding] {
+    return metered(
+        job.meter,
+        "cross",
+        lambda -> list[DraftFinding] {
+            return cross_file_review(job.reviewer, job.patch, job.signals);
+        },
+    );
+}
+
+def verify_job(job: Job) -> list[Verdict] {
+    return metered(
+        job.meter,
+        "verify",
+        lambda -> list[Verdict] {
+            return verify_file(job.intent, job.paths[0], job.patch, job.checks, job.context);
+        },
+    );
 }
 
 glob SEV_RANK: dict[str, int] = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4};
 
-def finding_dict(f: Finding) -> dict[str, any] {
-    return {
-        "id": f.id,
-        "review_id": f.review_id,
-        "pr_id": f.pr_id,
-        "path": f.path,
-        "line": f.line,
-        "end_line": f.end_line,
-        "severity": f.severity,
-        "category": f.category,
-        "title": f.title,
-        "body": f.body,
-        "suggestion": f.suggestion,
-        "evidence": f.evidence,
-        "confidence": f.confidence,
-        "status": f.status,
-        "source": f.source,
-        "verified": f.verified,
-        "verifier_note": f.verifier_note,
-        "looked_at": f.looked_at,
-        "anchored": f.anchored,
-        "created": f.created,
-        "replies": [{"author": r.author, "text": r.text, "ts": r.ts} for r in f.replies]
-    };
-}
-
-def draft_dict(d: Draft) -> dict[str, any] {
-    return {
-        "id": d.id,
-        "path": d.path,
-        "line": d.line,
-        "severity": d.severity,
-        "category": d.category,
-        "title": d.title,
-        "body": d.body,
-        "source": d.source,
-        "confidence": d.confidence
-    };
+def draft_note(d: Draft) -> DraftNote {
+    return DraftNote(
+        id=d.id,
+        path=d.path,
+        line=d.line,
+        severity=d.severity,
+        category=d.category,
+        title=d.title,
+        body=d.body,
+        source=d.source,
+        confidence=d.confidence,
+    );
 }
 
 def _stage_list -> list[StageState] {
@@ -189,14 +172,14 @@ def _draft_from(d: DraftFinding, path: str, source: str) -> Draft {
         path=(d.path or path).strip().lstrip("./"),
         line=max(0, d.line),
         end_line=max(d.line, d.end_line),
-        severity=str(d.severity.value if hasattr(d.severity, "value") else d.severity),
-        category=str(d.category.value if hasattr(d.category, "value") else d.category),
+        severity=d.severity.value,
+        category=d.category.value,
         title=d.title[:140],
         body=d.body,
         suggestion=d.suggestion,
         evidence=d.evidence[:600],
-        confidence=float(d.confidence),
-        source=source
+        confidence=d.confidence,
+        source=source,
     );
 }
 
@@ -252,7 +235,7 @@ def _same_issue(a: Draft, b: Draft) -> bool {
 def dedupe(drafts: list[Draft]) -> list[Draft] {
     ranked = sorted(
         drafts,
-        key=lambda (d: Draft) -> float { return SEV_RANK.get(d.severity, 5) * 10 - d.confidence; }
+        key=lambda (d: Draft) -> float { return SEV_RANK.get(d.severity, 5) * 10 - d.confidence; },
     );
     kept: list[Draft] = [];
     for d in ranked {
@@ -304,12 +287,12 @@ walker:priv Investigate {
         looked: list[str] = [];
 
     can route with FileChange entry {
-        if not [here-->][?:CodeRef] {
+        if not [here --> [?:CodeRef]] {
             disengage;
         }
-        visit [here-->][?:CodeRef] by llm(
+        visit [here --> [?:CodeRef]] by llm(
             select=(1, 3),
-            intent="Read the related code most likely to confirm or refute these concerns about the change"
+            intent="Read the related code most likely to confirm or refute these concerns about the change",
         );
     }
 
@@ -333,11 +316,12 @@ walker:priv ReviewRun {
         reviewer: Reviewer = Reviewer(repo="", ref="", repo_name="", intent=""),
         diffs: dict[str, FileDiff] = {},
         nodes: dict[str, FileChange] = {},
-        plan: ReviewPlan = ReviewPlan(intent="", change_type="", focus_areas=[], files=[], cross_cutting=[]),
+        plan: ReviewPlan = ReviewPlan(
+            intent="", change_type="", focus_areas=[], files=[], cross_cutting=[]
+        ),
         commits: list[CommitInfo] = [],
         drafts: list[Draft] = [],
         pending: list[Pending] = [],
-        jobs: dict[str, Job] = {},
         batch: list[str] = [],
         solo: int = 0,
         t0: float = 0.0,
@@ -355,51 +339,63 @@ walker:priv ReviewRun {
                 }
             }
         }
-        rv.stages = list(rv.stages);
         commit();
         emit(
             "review",
-            {
-                "phase": "stage",
-                "review_id": rv.id,
-                "pr_id": rv.pr_id,
-                "stage": key,
-                "status": status,
-                "detail": detail[:300],
-                "stages": [
-                    {"key": s.key, "label": s.label, "status": s.status, "detail": s.detail}
+            LiveData(
+                phase="stage",
+                review_id=rv.id,
+                pr_id=rv.pr_id,
+                stage=key,
+                status=status,
+                detail=detail[:300],
+                stages=[
+                    StageState(key=s.key, label=s.label, status=s.status, detail=s.detail)
                     for s in rv.stages
-                ]
-            }
+                ],
+            ),
         );
     }
 
-    def feed(rv: Review, kind: str, title: str, detail: str = "", extra: dict[str, any] = {}) {
-        rv.feed = [FeedItem(kind=kind, title=title[:200], detail=detail[:400], ts=now())] + rv.feed[:79];
-        emit("review", {"phase": kind, "review_id": rv.id, "pr_id": rv.pr_id, "title": title, "detail": detail} | extra);
+    def feed(rv: Review, kind: str, title: str, detail: str = "") {
+        rv.feed = [FeedItem(kind=kind, title=title[:200], detail=detail[:400], ts=now())]
+            + rv.feed[:79];
+        emit(
+            "review",
+            LiveData(phase=kind, review_id=rv.id, pr_id=rv.pr_id, title=title, detail=detail),
+        );
     }
 
     def note_file(rv: Review, fc: FileChange) {
         commit();
         emit(
             "review",
-            {
-                "phase": "file",
-                "review_id": rv.id,
-                "pr_id": rv.pr_id,
-                "path": fc.path,
-                "status": fc.state,
-                "summary": fc.summary,
-                "findings": fc.findings,
-                "risk": fc.risk
-            }
+            LiveData(
+                phase="file",
+                review_id=rv.id,
+                pr_id=rv.pr_id,
+                path=fc.path,
+                status=fc.state,
+                summary=fc.summary,
+                findings=fc.findings,
+                risk=fc.risk,
+            ),
         );
     }
 
     can start with Review entry {
         self.t0 = time.time();
         rv = here;
-        emit("review", {"phase": "start", "review_id": rv.id, "pr_id": rv.pr_id, "title": self.pr.title, "trigger": rv.trigger});
+        emit(
+            "review",
+            LiveData(
+                phase="start",
+                review_id=rv.id,
+                pr_id=rv.pr_id,
+                title=self.pr.title,
+                trigger=rv.trigger,
+            ),
+        );
         self.stage(rv, "ingest", "running");
         files = [
             f
@@ -413,12 +409,14 @@ walker:priv ReviewRun {
         }
         self.commits = pr_commits(rv.repo, self.pr);
         self.diffs = {f.path: f for f in files};
-        ref_note = "" if rv.ref != "WORKTREE" or self.pr.kind == "worktree" else " · PR head unavailable, reading the worktree";
+        ref_note = ""
+            if rv.ref != "WORKTREE" or self.pr.kind == "worktree"
+            else " · PR head unavailable, reading the worktree";
         self.stage(
             rv,
             "ingest",
             "done",
-            f"{len(files)} files, +{sum([f.additions for f in files])} -{sum([f.deletions for f in files])}, {len(self.commits)} commits{ref_note}"
+            f"{len(files)} files, +{sum([f.additions for f in files])} -{sum([f.deletions for f in files])}, {len(self.commits)} commits{ref_note}",
         );
         self.stage(rv, "triage", "running");
         risks = triage(files, [h.path for h in hotspots(rv.repo, 60)]);
@@ -434,7 +432,7 @@ walker:priv ReviewRun {
                 additions=f.additions,
                 deletions=f.deletions,
                 risk=r.score,
-                signals=r.signals[:6]
+                signals=r.signals[:6],
             );
             rv +>:Covers:+> fc;
             self.nodes[f.path] = fc;
@@ -453,47 +451,53 @@ walker:priv ReviewRun {
                         title=hit.title,
                         body=hit.body,
                         confidence=0.5,
-                        source="static"
-                    )
+                        source="static",
+                    ),
                 );
             }
         }
         rv.triage_risk = overall_risk(risks);
         emit(
             "review",
-            {
-                "phase": "triage",
-                "review_id": rv.id,
-                "pr_id": rv.pr_id,
-                "risk": rv.triage_risk,
-                "files": [
-                    {"path": r.path, "risk": r.score, "kind": r.kind, "signals": r.signals, "additions": r.additions, "deletions": r.deletions}
-                    for r in risks
-                ]
-            }
+            LiveData(
+                phase="triage", review_id=rv.id, pr_id=rv.pr_id, risk=rv.triage_risk, files=risks
+            ),
         );
         self.stage(
             rv,
             "triage",
             "done",
-            f"Top risk {risks[0].path.split('/')[-1]} ({risks[0].score}); {len(self.drafts)} static hits; {refs} related-code links"
+            f"Top risk {risks[0].path.split('/')[-1]} ({risks[0].score}); {len(self.drafts)} static hits; {refs} related-code links",
         );
         self.stage(rv, "plan", "running");
-        self.plan = ReviewPlan(intent=self.pr.title, change_type="mixed", focus_areas=[], files=[], cross_cutting=[]);
+        self.plan = ReviewPlan(
+            intent=self.pr.title, change_type="mixed", focus_areas=[], files=[], cross_cutting=[]
+        );
         if self.use_llm {
             try {
+                briefs = [
+                    FileBrief(
+                        path=r.path,
+                        status=self.diffs[r.path].status,
+                        additions=r.additions,
+                        deletions=r.deletions,
+                        risk=r.score,
+                        signals=r.signals[:4],
+                    )
+                    for r in risks[:60]
+                ];
                 self.plan = metered(
                     self.meter,
                     "plan",
-                    plan_review,
-                    self.pr.title,
-                    self.pr.body[:3000],
-                    [c.subject for c in self.commits[:30]],
-                    [
-                        FileBrief(path=r.path, status=self.diffs[r.path].status, additions=r.additions, deletions=r.deletions, risk=r.score, signals=r.signals[:4])
-                        for r in risks[:60]
-                    ],
-                    self.focus
+                    lambda -> ReviewPlan {
+                        return plan_review(
+                            self.pr.title,
+                            self.pr.body[:3000],
+                            [c.subject for c in self.commits[:30]],
+                            briefs,
+                            self.focus,
+                        );
+                    },
                 );
                 self.stage(rv, "plan", "done", self.plan.intent[:220]);
             } except Exception as e {
@@ -502,17 +506,23 @@ walker:priv ReviewRun {
         } else {
             self.stage(rv, "plan", "skipped", "No model credentials; heuristic plan");
         }
-        planned: dict[str, FilePlan] = {fp.path: fp for fp in self.plan.files if fp.path in self.diffs};
+        planned: dict[str, FilePlan] = {
+            fp.path: fp
+            for fp in self.plan.files
+            if fp.path in self.diffs
+        };
         ranked = sorted(risks, key=lambda (r: FileRisk) -> int { return 0 - r.score; });
         for (i, r) in enumerate(ranked) {
             fc = self.nodes[r.path];
             fp = planned.get(r.path);
-            if fp {
+            if fp is not None {
                 fc.priority = max(1, min(3, fp.priority));
                 fc.lenses = fp.lenses[:4];
                 fc.why = fp.why;
             } else {
-                fc.priority = 1 if i < 4 and r.kind in ("code", "config") else (2 if r.score >= 25 else 3);
+                fc.priority = 1
+                    if i < 4 and r.kind in ("code", "config")
+                    else (2 if r.score >= 25 else 3);
                 fc.lenses = ["correctness", "reliability", "security"];
             }
         }
@@ -522,13 +532,13 @@ walker:priv ReviewRun {
             ref=rv.ref,
             repo_name=os.path.basename(rv.repo),
             intent=self.plan.intent,
-            focus=self.focus
+            focus=self.focus,
         );
         commit();
         self.stage(rv, "review", "running", "Every reviewable file, riskiest first");
         visit sorted(
-            [here->:Covers:->][?:FileChange],
-            key=lambda (n: FileChange) -> int { return n.priority * 1000 - n.risk; }
+            [here ->:Covers:->][?:FileChange],
+            key=lambda (n: FileChange) -> int { return n.priority * 1000 - n.risk; },
         );
     }
 
@@ -545,8 +555,19 @@ walker:priv ReviewRun {
         if here.priority == 1 and self.solo < MAX_SOLO {
             self.solo += 1;
             here.state = "reviewing";
-            job = Job(kind="file", paths=[here.path], lenses=here.lenses or ["correctness"], patch=render_file_patch(f, 9000), signals=here.signals[:4], meter=self.meter, reviewer=self.reviewer);
-            self.pending.append(Pending(kind="file", paths=[here.path], future=self.submit(job)));
+            self.pending.append(
+                Pending(
+                    job=Job(
+                        kind="file",
+                        paths=[here.path],
+                        lenses=here.lenses or ["correctness"],
+                        patch=render_file_patch(f, 9000),
+                        signals=here.signals[:4],
+                        meter=self.meter,
+                        reviewer=self.reviewer,
+                    ),
+                ),
+            );
             return;
         }
         here.state = "batched";
@@ -557,77 +578,119 @@ walker:priv ReviewRun {
         }
     }
 
-    """Start a job in a `flow` worker. `flow` evaluates its call lazily in the worker, so the
-    job is parked under a key it never leaves; only the scalar key crosses (jaseci-labs/jac#10234)."""
-    def submit(job: Job) -> any {
-        key = new_id("J");
-        self.jobs[key] = job;
-        return flow run_job(self.jobs[key]);
-    }
-
     def launch_batch {
         if not self.batch {
             return;
         }
         names = list(self.batch);
         self.batch = [];
-        job = Job(kind="batch", paths=list(names), patch="\n\n".join([render_file_patch(self.diffs[p], 3000) for p in names]), meter=self.meter, reviewer=self.reviewer);
-        self.pending.append(Pending(kind="batch", paths=names, future=self.submit(job)));
+        self.pending.append(
+            Pending(
+                job=Job(
+                    kind="batch",
+                    paths=names,
+                    patch="\n\n".join([render_file_patch(self.diffs[p], 3000) for p in names]),
+                    meter=self.meter,
+                    reviewer=self.reviewer,
+                ),
+            ),
+        );
     }
 
+    """Run every queued reviewer as a task and take each one's drafts as it finishes, until
+    the review's deadline: a task tells `finished` its number when it ends."""
     def gather(rv: Review) {
         self.launch_batch();
         if not self.pending {
-            self.stage(rv, "review", "skipped", "No model credentials" if not self.use_llm else "Nothing reviewable");
+            self.stage(
+                rv,
+                "review",
+                "skipped",
+                "No model credentials" if not self.use_llm else "Nothing reviewable",
+            );
             return;
         }
-        by_future: dict[any, Pending] = {p.future: p for p in self.pending};
+        finished: queue.Queue[int] = queue.Queue();
+        tasks = [flow review_and_tell(p.job, finished, n) for (n, p) in enumerate(self.pending)];
         done = 0;
-        left = max(30.0, REVIEW_DEADLINE - (time.time() - self.t0));
-        try {
-            for fut in as_completed(list(by_future.keys()), timeout=left) {
-                job = by_future[fut];
-                done += 1;
-                try {
-                    result = fut.result();
-                } except Exception as e {
-                    for p in job.paths {
-                        self.nodes[p].state = "failed";
-                        self.note_file(rv, self.nodes[p]);
-                    }
-                    self.feed(rv, "warn", "Reviewer failed on " + ", ".join([p.split("/")[-1] for p in job.paths]), str(e)[:200]);
-                    continue;
-                }
-                fresh: list[Draft] = [];
-                if job.kind == "file" {
-                    fc = self.nodes[job.paths[0]];
-                    fc.summary = result.summary;
-                    fresh = [_draft_from(d, fc.path, "lens:" + (fc.lenses[0] if fc.lenses else "general")) for d in result.findings if d.confidence >= 0.35];
-                } else {
-                    for s in result.files {
-                        if s.path in self.nodes {
-                            self.nodes[s.path].summary = s.summary;
-                        }
-                    }
-                    fresh = [_draft_from(d, job.paths[0], "lens:batch") for d in result.findings if d.confidence >= 0.35];
-                }
-                for p in job.paths {
-                    fc = self.nodes[p];
-                    fc.state = "reviewed";
-                    fc.findings = len([d for d in fresh if d.path == p]);
-                    self.note_file(rv, fc);
-                }
-                self.drafts = self.drafts + fresh;
-                if fresh {
-                    emit("review", {"phase": "drafts", "review_id": rv.id, "pr_id": rv.pr_id, "path": job.paths[0], "drafts": [draft_dict(d) for d in fresh]});
-                }
-                self.stage(rv, "review", "running", f"{done}/{len(by_future)} reviewer calls back · {len(self.drafts)} drafts");
+        deadline = time.time() + max(30.0, REVIEW_DEADLINE - (time.time() - self.t0));
+        while done < len(tasks) {
+            try {
+                n = finished.get(timeout=max(0.0, deadline - time.time()));
+            } except queue.Empty {
+                self.feed(
+                    rv,
+                    "warn",
+                    "Reviewers ran past the deadline",
+                    f"{len(tasks) - done} calls abandoned",
+                );
+                break;
             }
-        } except TimeoutError {
-            self.feed(rv, "warn", "Reviewers ran past the deadline", f"{len(by_future) - done} calls abandoned");
+            job = self.pending[n].job;
+            done += 1;
+            try {
+                result = wait tasks[n];
+            } except Exception as e {
+                for p in job.paths {
+                    self.nodes[p].state = "failed";
+                    self.note_file(rv, self.nodes[p]);
+                }
+                self.feed(
+                    rv,
+                    "warn",
+                    "Reviewer failed on " + ", ".join([p.split("/")[-1] for p in job.paths]),
+                    str(e)[:200],
+                );
+                continue;
+            }
+            for s in result.files {
+                if s.path in self.nodes {
+                    self.nodes[s.path].summary = s.summary;
+                }
+            }
+            source = "lens:batch";
+            if job.kind == "file" {
+                fc = self.nodes[job.paths[0]];
+                source = "lens:" + (fc.lenses[0] if fc.lenses else "general");
+            }
+            fresh = [
+                _draft_from(d, job.paths[0], source)
+                for d in result.findings
+                if d.confidence >= 0.35
+            ];
+            for p in job.paths {
+                fc = self.nodes[p];
+                fc.state = "reviewed";
+                fc.findings = len([d for d in fresh if d.path == p]);
+                self.note_file(rv, fc);
+            }
+            self.drafts = self.drafts + fresh;
+            if fresh {
+                emit(
+                    "review",
+                    LiveData(
+                        phase="drafts",
+                        review_id=rv.id,
+                        pr_id=rv.pr_id,
+                        path=job.paths[0],
+                        drafts=[draft_note(d) for d in fresh],
+                    ),
+                );
+            }
+            self.stage(
+                rv,
+                "review",
+                "running",
+                f"{done}/{len(tasks)} reviewer calls back · {len(self.drafts)} drafts",
+            );
         }
         reviewed = len([n for n in self.nodes.values() if n.state == "reviewed"]);
-        self.stage(rv, "review", "done", f"{reviewed}/{len(self.nodes)} files reviewed ({self.solo} solo, {len(by_future) - self.solo} batches) · {len(self.drafts)} drafts");
+        self.stage(
+            rv,
+            "review",
+            "done",
+            f"{reviewed}/{len(self.nodes)} files reviewed ({self.solo} solo, {len(tasks) - self.solo} batches) · {len(self.drafts)} drafts",
+        );
     }
 
     def anchor_all(rv: Review) {
@@ -649,18 +712,32 @@ walker:priv ReviewRun {
     def cross(rv: Review) {
         self.stage(rv, "cross", "running");
         if not self.use_llm or len(self.diffs) < 2 {
-            self.stage(rv, "cross", "skipped", "Single file" if self.use_llm else "No model credentials");
+            self.stage(
+                rv, "cross", "skipped", "Single file" if self.use_llm else "No model credentials"
+            );
             return;
         }
         overview = "\n".join([
             f"- {n.path} (risk {n.risk}): {n.summary or f'+{n.additions}/-{n.deletions}'}"
-            for n in sorted(self.nodes.values(), key=lambda (n: FileChange) -> int { return 0 - n.risk; })[:40]
+            for n in sorted(
+                self.nodes.values(), key=lambda (n: FileChange) -> int { return 0 - n.risk; }
+            )[:40]
         ]);
         try {
-            job = Job(kind="cross", patch=overview, signals=self.plan.cross_cutting[:6], meter=self.meter, reviewer=self.reviewer);
-            task = self.submit(job);
-            extra: list[DraftFinding] = wait task;
-            found = [_draft_from(d, d.path, "lens:cross-file") for d in extra if d.confidence >= 0.4];
+            job = Job(
+                kind="cross",
+                patch=overview,
+                signals=self.plan.cross_cutting[:6],
+                meter=self.meter,
+                reviewer=self.reviewer,
+            );
+            task = flow cross_job(job);
+            extra = wait task;
+            found = [
+                _draft_from(d, d.path, "lens:cross-file")
+                for d in extra
+                if d.confidence >= 0.4
+            ];
             self.drafts = self.drafts + found;
             self.stage(rv, "cross", "done", f"{len(found)} cross-file issues");
         } except Exception as e {
@@ -672,7 +749,12 @@ walker:priv ReviewRun {
         self.stage(rv, "investigate", "running");
         evidence: dict[str, str] = {};
         if not self.use_llm or not self.drafts {
-            self.stage(rv, "investigate", "skipped", "Nothing to investigate" if self.use_llm else "No model credentials");
+            self.stage(
+                rv,
+                "investigate",
+                "skipped",
+                "Nothing to investigate" if self.use_llm else "No model credentials",
+            );
             return evidence;
         }
         paths: list[str] = [];
@@ -703,51 +785,80 @@ walker:priv ReviewRun {
                         d.looked_at = w.looked;
                     }
                 }
-                self.feed(rv, "investigate", p.split("/")[-1] + ": read " + ", ".join([x.split("/")[-1] for x in w.looked]), "Chosen by the model from callers, tests, and co-changing files");
+                self.feed(
+                    rv,
+                    "investigate",
+                    p.split("/")[-1] + ": read " + ", ".join([x.split("/")[-1] for x in w.looked]),
+                    "Chosen by the model from callers, tests, and co-changing files",
+                );
             }
         }
         unbill();
         commit();
-        self.stage(rv, "investigate", "done", f"{read} related excerpts read for {len(evidence)} files");
+        self.stage(
+            rv, "investigate", "done", f"{read} related excerpts read for {len(evidence)} files"
+        );
         return evidence;
     }
 
     def verify(rv: Review, evidence: dict[str, str]) -> int {
         self.stage(rv, "verify", "running", f"Challenging {len(self.drafts)} drafts");
         if not self.use_llm or not self.drafts {
-            self.stage(rv, "verify", "skipped", "Nothing to verify" if self.use_llm else "No model credentials");
+            self.stage(
+                rv,
+                "verify",
+                "skipped",
+                "Nothing to verify" if self.use_llm else "No model credentials",
+            );
             return 0;
         }
-        jobs: list[Pending] = [];
+        checks: list[Pending] = [];
         for p in sorted(set([d.path for d in self.drafts])) {
             mine = [d for d in self.drafts if d.path == p];
             for i in range(0, len(mine), VERIFY_BATCH) {
                 chunk = mine[i:i + VERIFY_BATCH];
-                around = "\n\n".join([f"[{d.id}] around line {d.line}\n" + _context_lines(rv.repo, rv.ref, d) for d in chunk]);
+                around = "\n\n".join([
+                    f"[{d.id}] around line {d.line}\n" + _context_lines(rv.repo, rv.ref, d)
+                    for d in chunk
+                ]);
                 job = Job(
                     kind="verify",
                     paths=[p],
                     intent=self.plan.intent,
                     patch=render_file_patch(self.diffs[p], 9000),
-                    checks=[DraftCheck(id=d.id, line=d.line, severity=d.severity, category=d.category, title=d.title, body=d.body, evidence=d.evidence) for d in chunk],
+                    checks=[
+                        DraftCheck(
+                            id=d.id,
+                            line=d.line,
+                            severity=d.severity,
+                            category=d.category,
+                            title=d.title,
+                            body=d.body,
+                            evidence=d.evidence,
+                        )
+                        for d in chunk
+                    ],
                     context=(evidence.get(p, "") + "\n\n" + around)[:24000],
                     meter=self.meter,
-                    reviewer=self.reviewer
+                    reviewer=self.reviewer,
                 );
-                jobs.append(Pending(kind="verify", paths=[p], drafts=chunk, future=self.submit(job)));
+                checks.append(Pending(job=job, drafts=chunk));
             }
         }
+        tasks = [flow verify_job(c.job) for c in checks];
         dropped = 0;
         unverified = 0;
         survivors: list[Draft] = [];
-        for job in jobs {
-            chunk: list[Draft] = job.drafts;
+        for (n, check) in enumerate(checks) {
+            chunk = check.drafts;
             verdicts: list[Verdict] = [];
             try {
-                verdicts = wait job.future;
+                verdicts = wait tasks[n];
             } except Exception as e {
                 unverified += len(chunk);
-                self.feed(rv, "warn", "Verifier failed on " + chunk[0].path.split("/")[-1], str(e)[:200]);
+                self.feed(
+                    rv, "warn", "Verifier failed on " + chunk[0].path.split("/")[-1], str(e)[:200]
+                );
             }
             by_id: dict[str, Verdict] = {v.id: v for v in verdicts};
             for d in chunk {
@@ -759,7 +870,7 @@ walker:priv ReviewRun {
                 }
                 if v.keep {
                     d.verified = True;
-                    d.severity = str(v.severity.value if hasattr(v.severity, "value") else v.severity);
+                    d.severity = v.severity.value;
                     d.note = v.reason;
                     survivors.append(d);
                 } else {
@@ -770,13 +881,21 @@ walker:priv ReviewRun {
         }
         self.drafts = survivors;
         tail = f", {unverified} unverified" if unverified else "";
-        self.stage(rv, "verify", "done", f"Kept {len(self.drafts)}, dropped {dropped} as false positives{tail}");
+        self.stage(
+            rv,
+            "verify",
+            "done",
+            f"Kept {len(self.drafts)}, dropped {dropped} as false positives{tail}",
+        );
         return dropped;
     }
 
     def conclude(rv: Review, dropped: int) {
         self.stage(rv, "synthesize", "running");
-        self.drafts = sorted(self.drafts, key=lambda (d: Draft) -> int { return SEV_RANK.get(d.severity, 5) * 100000 + d.line; });
+        self.drafts = sorted(
+            self.drafts,
+            key=lambda (d: Draft) -> int { return SEV_RANK.get(d.severity, 5) * 100000 + d.line; },
+        );
         blocking = len([d for d in self.drafts if d.severity in ("critical", "high")]);
         verdict = verdict_for(self.drafts);
         summary = ReviewSummary(
@@ -785,19 +904,32 @@ walker:priv ReviewRun {
             summary=f"Deterministic review of {len(self.diffs)} files: {len(self.drafts)} findings, {blocking} blocking.",
             highlights=[],
             concerns=[d.title for d in self.drafts[:4]],
-            suggested_tests=[]
+            suggested_tests=[],
         );
         if self.use_llm {
-            walk = "\n".join([f"- {n.path} (risk {n.risk}): {n.summary or 'not reviewed'}" for n in list(self.nodes.values())[:40]]);
-            brief = "\n".join([f"- [{d.severity}/{d.category}] {d.path}:{d.line} {d.title}" for d in self.drafts[:40]]) or "(no findings)";
+            walk = "\n".join([
+                f"- {n.path} (risk {n.risk}): {n.summary or 'not reviewed'}"
+                for n in list(self.nodes.values())[:40]
+            ]);
+            brief = "\n".join([
+                f"- [{d.severity}/{d.category}] {d.path}:{d.line} {d.title}"
+                for d in self.drafts[:40]
+            ])
+                or "(no findings)";
             stats = f"{len(self.diffs)} files, +{sum([f.additions for f in self.diffs.values()])} -{sum([f.deletions for f in self.diffs.values()])}, triage risk {rv.triage_risk}, {len(self.commits)} commits";
             try {
-                summary = metered(self.meter, "synthesize", synthesize, self.plan.intent, walk, brief, stats);
+                summary = metered(
+                    self.meter,
+                    "synthesize",
+                    lambda -> ReviewSummary {
+                        return synthesize(self.plan.intent, walk, brief, stats);
+                    },
+                );
             } except Exception as e {
                 self.feed(rv, "warn", "Synthesizer failed", str(e)[:200]);
             }
         }
-        written = str(summary.verdict.value if hasattr(summary.verdict, "value") else summary.verdict);
+        written = summary.verdict.value;
         risk = int(max(0, min(100, summary.risk)));
         if any([d.severity == "critical" for d in self.drafts]) {
             risk = max(risk, 80);
@@ -829,7 +961,7 @@ walker:priv ReviewRun {
                 verifier_note=d.note,
                 looked_at=d.looked_at,
                 anchored=d.anchored,
-                created=now()
+                created=now(),
             );
         }
         for fc in self.nodes.values() {
@@ -851,16 +983,16 @@ walker:priv ReviewRun {
         commit();
         emit(
             "review",
-            {
-                "phase": "done",
-                "review_id": rv.id,
-                "pr_id": rv.pr_id,
-                "verdict": verdict,
-                "risk": risk,
-                "findings": [finding_dict(f) for f in review_findings(rv)],
-                "seconds": round(time.time() - self.t0, 1),
-                "cost": rv.cost
-            }
+            LiveData(
+                phase="done",
+                review_id=rv.id,
+                pr_id=rv.pr_id,
+                verdict=verdict,
+                risk=risk,
+                findings=len(review_findings(rv)),
+                seconds=round(time.time() - self.t0, 1),
+                cost=rv.cost,
+            ),
         );
     }
 
@@ -881,7 +1013,10 @@ walker:priv ReviewRun {
             rv.error = self.failed;
             self.close(rv, "failed");
             commit();
-            emit("review", {"phase": "failed", "review_id": rv.id, "pr_id": rv.pr_id, "error": self.failed});
+            emit(
+                "review",
+                LiveData(phase="failed", review_id=rv.id, pr_id=rv.pr_id, error=self.failed),
+            );
             return;
         }
         self.gather(rv);
@@ -896,7 +1031,17 @@ walker:priv ReviewRun {
 """Create the Review under the caller's PR node and run the pipeline on it. Returns its id."""
 def run_review(repo: str, pr: PullRequestRef, focus: str = "", trigger: str = "user") -> str {
     info = repo_info(repo);
-    pr_n = ensure_pr(ensure_repo(info.path, info.name), pr.id, pr.kind, pr.title, pr.head, pr.base, pr.author, pr.url, pr.number);
+    pr_n = ensure_pr(
+        ensure_repo(info.path, info.name),
+        pr.id,
+        pr.kind,
+        pr.title,
+        pr.head,
+        pr.base,
+        pr.author,
+        pr.url,
+        pr.number,
+    );
     rv = Review(
         id=new_id("R"),
         pr_id=pr.id,
@@ -907,7 +1052,7 @@ def run_review(repo: str, pr: PullRequestRef, focus: str = "", trigger: str = "u
         stages=_stage_list(),
         started=now(),
         model=model_label(),
-        trigger=trigger
+        trigger=trigger,
     );
     pr_n +>:HasReview:+> rv;
     commit();
@@ -915,8 +1060,6 @@ def run_review(repo: str, pr: PullRequestRef, focus: str = "", trigger: str = "u
     meter = Meter(budget=REVIEW_BUDGET);
     try {
         rv spawn ReviewRun(pr=pr, focus=focus, use_llm=llm_ready(), meter=meter);
-    } except WriteConflict as wc {
-        raise wc;
     } except Exception as e {
         rv.error = "Review crashed: " + str(e)[:300];
         rv.status = "failed";
@@ -924,7 +1067,7 @@ def run_review(repo: str, pr: PullRequestRef, focus: str = "", trigger: str = "u
         rv.costs = meter.breakdown();
         rv.cost = round(meter.total_cost(), 5);
         commit();
-        emit("review", {"phase": "failed", "review_id": rv.id, "pr_id": rv.pr_id, "error": rv.error});
+        emit("review", LiveData(phase="failed", review_id=rv.id, pr_id=rv.pr_id, error=rv.error));
     } finally {
         unbill();
         ACTIVE.pop(rv.id, None);

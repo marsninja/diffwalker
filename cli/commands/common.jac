@@ -1,3 +1,5 @@
+"""What the commands share: exit codes, colors, the repository to work on, and the server
+a `--live` command calls and the account it calls as."""
 import os;
 import sys;
 import json;
@@ -5,13 +7,15 @@ import urllib.request;
 import urllib.error;
 import getpass;
 import stat;
+import from stdjac.plan { remote_url }
+import from stdjac.remote { RemoteRejected }
 
 glob EXIT_OK: int = 0,
      EXIT_FAILURE: int = 1,
      EXIT_USAGE: int = 2,
      EXIT_UNAVAILABLE: int = 3,
      COLOR: bool = sys.stdout.isatty() and not os.environ.get("NO_COLOR"),
-     DEFAULT_SERVER: str = os.environ.get("DIFFWALKER_URL", "http://localhost:8000");
+     DEFAULT_SERVER: str = os.environ.get("DIFFWALKER_URL", "") or remote_url("api");
 
 def paint(text: str, code: str) -> str {
     return f"\033[{code}m{text}\033[0m" if COLOR else text;
@@ -62,12 +66,7 @@ def warn(text: str) {
 }
 
 def pick_repo(path: str) -> str {
-    for candidate in [
-        path,
-        os.environ.get("DIFFWALKER_REPO", ""),
-        os.getcwd(),
-        PROJECT_DIR
-    ] {
+    for candidate in [path, os.environ.get("DIFFWALKER_REPO", ""), os.getcwd(), PROJECT_DIR] {
         if candidate {
             top = resolve_repo(candidate);
             if top {
@@ -99,34 +98,33 @@ def saved_token(server: str) -> str {
     }
 }
 
-def _headers(server: str, sse: bool = False) -> dict[str, str] {
-    h = {"Content-Type": "application/json"};
-    if sse {
-        h["Accept"] = "text/event-stream";
+"""Send this program's calls of the server to `server`, as the account `login` signed in
+there: a crossing goes where `JAC_REMOTE_API` says, with the session in `JAC_REMOTE_TOKEN`."""
+def use_server(server: str) {
+    os.environ["JAC_REMOTE_API"] = server;
+    token = saved_token(server);
+    if token {
+        os.environ["JAC_REMOTE_TOKEN"] = token;
     }
-    tok = saved_token(server);
-    if tok {
-        h["Authorization"] = "Bearer " + tok;
-    }
-    return h;
 }
 
-def _post(server: str, path: str, body: dict[str, any], auth: bool = True, timeout: int = 120) -> dict[str, any] {
+"""Ask the server's accounts to `register` or `login`: its reply, whatever its status."""
+def _auth(server: str, what: str, username: str, password: str) -> dict[str, any] {
     req = urllib.request.Request(
-        server.rstrip("/") + path,
-        data=json.dumps(body).encode("utf-8"),
-        headers=_headers(server) if auth else {"Content-Type": "application/json"},
-        method="POST"
+        server.rstrip("/") + "/__jac/auth/" + what,
+        data=json.dumps({"username": username, "password": password}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
     );
     try {
-        with urllib.request.urlopen(req, timeout=timeout) as resp {
+        with urllib.request.urlopen(req, timeout=120) as resp {
             return json.loads(resp.read().decode("utf-8"));
         }
     } except urllib.error.HTTPError as e {
         try {
             return json.loads(e.read().decode("utf-8"));
-        } except Exception {
-            return {"ok": False, "error": {"code": str(e.code), "message": str(e)}};
+        } except ValueError {
+            return {"ok": False, "detail": str(e)};
         }
     }
 }
@@ -136,90 +134,36 @@ def run_login(server: str, username: str, register: bool) -> int {
     name = username or input("username: ").strip();
     secret = os.environ.get("DIFFWALKER_PASSWORD", "") or getpass.getpass("password: ");
     try {
-        if register {
-            made = _post(server, "/user/register", {"identities": [{"type": "username", "value": name}], "credential": {"type": "password", "password": secret}}, False);
-            if not made.get("ok") {
-                warn(red("diffwalker: registration failed: ") + str((made.get("error") or {}).get("message", made)));
-                return EXIT_FAILURE;
-            }
-        }
-        got = _post(server, "/user/login", {"identity": {"type": "username", "value": name}, "credential": {"type": "password", "password": secret}}, False);
-    } except Exception as e {
+        got = _auth(server, "register" if register else "login", name, secret);
+    } except OSError as e {
         return unreachable(server, e);
     }
-    token = str(((got.get("data") or {}).get("token")) or "");
+    data: dict[str, any] = got.get("data") or {};
+    token = str(data.get("token") or "");
     if not got.get("ok") or not token {
-        warn(red("diffwalker: sign-in failed: ") + str((got.get("error") or {}).get("message", "wrong username or password")));
+        warn(
+            red("diffwalker: registration failed: " if register else "diffwalker: sign-in failed: ")
+                + str(got.get("detail") or "wrong username or password"),
+        );
         return EXIT_FAILURE;
     }
     path = _token_file(server);
     os.makedirs(os.path.dirname(path), exist_ok=True);
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, stat.S_IRUSR | stat.S_IWUSR);
-    with os.fdopen(fd, "w") as fh {
+    with open(fd, "w") as fh {
         fh.write(token);
     }
     print(green("signed in as " + name) + dim("  token saved to " + path));
     return EXIT_OK;
 }
 
-def post_sse(
-    server: str,
-    fn: str,
-    body: dict[str, any],
-    on_frame: Callable[[dict[str, any]], bool]
-) -> bool {
-    req = urllib.request.Request(
-        server.rstrip("/") + "/function/" + fn,
-        data=json.dumps(body).encode("utf-8"),
-        headers=_headers(server, True),
-        method="POST"
-    );
-    with urllib.request.urlopen(req, timeout=900) as resp {
-        event = "";
-        for raw in resp {
-            line = raw.decode("utf-8", errors="replace").rstrip("\r\n");
-            if line.startswith("event:") {
-                event = line[6:].strip();
-                continue;
-            }
-            if not line.startswith("data: ") {
-                if line == "" {
-                    event = "";
-                }
-                continue;
-            }
-            if event in ("end", "error") {
-                return event == "end";
-            }
-            try {
-                frame = json.loads(line[6:]);
-            } except Exception {
-                continue;
-            }
-            if isinstance(frame, dict) and not on_frame(frame) {
-                return True;
-            }
-        }
-    }
-    return True;
-}
-
-"""Call a function endpoint; every argument is passed explicitly (omitted ones would arrive as strings, jaseci-labs/jac#10234)."""
-def post_json(server: str, fn: str, body: dict[str, any], timeout: int = 120) -> any {
-    payload = _post(server, "/function/" + fn, body, True, timeout);
-    if not payload.get("ok") {
-        err = payload.get("error") or {};
-        raise RuntimeError(str(err.get("code", "")) + ": " + str(err.get("message", "request failed")));
-    }
-    return (payload.get("data") or {}).get("result");
-}
-
+"""Say that a call of `server` failed, and what would make it work."""
 def unreachable(server: str, e: Exception) -> int {
     warn(red("diffwalker: cannot reach " + server) + dim(" (" + str(e)[:120] + ")"));
-    if "401" in str(e) or "UNAUTHORIZED" in str(e) {
-        warn(dim("hint: sign in first with `jac run cli -- login`"));
+    if isinstance(e, RemoteRejected) {
+        warn(dim("hint: sign in first with `neojac run cli -- login`"));
     } else {
-        warn(dim("hint: start the server with `jac run web`, or set DIFFWALKER_URL / --server"));
+        warn(dim("hint: start the server with `neojac run web`, or set DIFFWALKER_URL / --server"));
     }
     return EXIT_UNAVAILABLE;
 }

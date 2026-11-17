@@ -1,53 +1,16 @@
+"""The graph a user's root holds: their workspace, repositories, pull requests, reviews and
+chat threads, and the queries over it.
+
+    Root --HasRepo--> Repo --HasPR--> PullRequest --HasReview--> Review
+    Review --Covers--> FileChange --Raised--> Finding
+    FileChange --CalledFrom/TestedBy/ChangesWith--> CodeRef
+    Repo --Pinned--> Insight        Root --Talked--> ChatThread
+
+`Finding` and `Insight` are declared in `core.wire`, since the front ends are sent them.
+"""
+import threading;
 import time;
 import uuid;
-
-obj Reply {
-    has author: str = "",
-        text: str = "",
-        ts: float = 0.0;
-}
-
-obj StageState {
-    has key: str = "",
-        label: str = "",
-        status: str = "pending",
-        detail: str = "",
-        started: float = 0.0,
-        finished: float = 0.0;
-}
-
-obj StageCost {
-    has stage: str = "",
-        calls: int = 0,
-        tokens: int = 0,
-        cached: int = 0,
-        cost: float = 0.0,
-        ms: float = 0.0;
-}
-
-obj FeedItem {
-    has kind: str = "info",
-        title: str = "",
-        detail: str = "",
-        ts: float = 0.0;
-}
-
-obj ToolTrace {
-    has tool: str = "",
-        args: str = "",
-        result: str = "",
-        ok: bool = True;
-}
-
-obj ChatMsg {
-    has role: str = "user",
-        text: str = "",
-        ts: float = 0.0,
-        tools: list[ToolTrace] = [],
-        cards: list[str] = [],
-        tokens: int = 0,
-        cost: float = 0.0;
-}
 
 node Workspace {
     has active_repo: str = "",
@@ -137,41 +100,6 @@ node CodeRef {
 sem CodeRef = "Code elsewhere in the repository that relates to a changed file. Visiting it reads that code into the investigation.";
 sem CodeRef.preview = "The first matching line, as found by git grep or git history.";
 
-node Finding {
-    has id: str = "",
-        review_id: str = "",
-        pr_id: str = "",
-        path: str = "",
-        line: int = 0,
-        end_line: int = 0,
-        severity: str = "medium",
-        category: str = "correctness",
-        title: str = "",
-        body: str = "",
-        suggestion: str = "",
-        evidence: str = "",
-        confidence: float = 0.7,
-        status: str = "open",
-        source: str = "agent",
-        verified: bool = False,
-        verifier_note: str = "",
-        looked_at: list[str] = [],
-        anchored: bool = True,
-        created: float = 0.0,
-        replies: list[Reply] = [];
-}
-
-node Insight {
-    has id: str = "",
-        title: str = "",
-        kind: str = "bar",
-        caption: str = "",
-        spec: str = "{}",
-        created: float = 0.0,
-        pinned: bool = True,
-        prompt: str = "";
-}
-
 node ChatThread {
     has id: str = "",
         title: str = "",
@@ -210,7 +138,10 @@ edge Pinned: Repo --> Insight {}
 
 edge Talked: Root --> ChatThread {}
 
-glob SEVERITIES: list[str] = ["critical", "high", "medium", "low", "info"],
+"""The server answers a user's calls at once: `_making` is held while a node that should be
+there once (a workspace, a repository, a pull request, a chat thread) is looked for and made."""
+glob _making: threading.Lock = threading.Lock(),
+     SEVERITIES: list[str] = ["critical", "high", "medium", "low", "info"],
      CATEGORIES: list[str] = [
          "correctness",
          "security",
@@ -219,7 +150,7 @@ glob SEVERITIES: list[str] = ["critical", "high", "medium", "low", "info"],
          "maintainability",
          "testing",
          "api",
-         "style"
+         "style",
      ];
 
 def new_id(prefix: str) -> str {
@@ -232,32 +163,36 @@ def now -> float {
 
 """The caller's workspace: active repository and recent ones, one per user root."""
 def workspace -> Workspace {
-    found = [root-->][?:Workspace];
-    if found {
-        return found[0];
+    with _making {
+        found = [root --> [?:Workspace]];
+        if found {
+            return found[0];
+        }
+        ws = Workspace();
+        root ++> ws;
+        return ws;
     }
-    ws = Workspace();
-    root ++> ws;
-    return ws;
 }
 
 def repo_node(repo_path: str) -> Repo | None {
-    found = [root->:HasRepo:->][?:Repo, path == repo_path];
+    found = [root ->:HasRepo:->][?:Repo, path == repo_path];
     return found[0] if found else None;
 }
 
 def ensure_repo(path: str, name: str) -> Repo {
-    r = repo_node(path);
-    if r {
-        return r;
+    with _making {
+        r = repo_node(path);
+        if r is not None {
+            return r;
+        }
+        fresh = Repo(path=path, name=name, added_at=now());
+        root +>:HasRepo:+> fresh;
+        return fresh;
     }
-    fresh = Repo(path=path, name=name, added_at=now());
-    root +>:HasRepo:+> fresh;
-    return fresh;
 }
 
 def pr_node(repo: Repo, pr_id: str) -> PullRequest | None {
-    found = [repo->:HasPR:->][?:PullRequest, id == pr_id];
+    found = [repo ->:HasPR:->][?:PullRequest, id == pr_id];
     return found[0] if found else None;
 }
 
@@ -270,12 +205,14 @@ def ensure_pr(
     base: str,
     author: str,
     url: str,
-    number: int
+    number: int,
 ) -> PullRequest {
-    p = pr_node(repo, pr_id);
-    if p is None {
-        p = PullRequest(id=pr_id);
-        repo +>:HasPR:+> p;
+    with _making {
+        found = pr_node(repo, pr_id);
+        p = found if found is not None else PullRequest(id=pr_id);
+        if found is None {
+            repo +>:HasPR:+> p;
+        }
     }
     p.kind = kind;
     p.title = title or p.title;
@@ -288,22 +225,22 @@ def ensure_pr(
 }
 
 def pr_reviews(pr: PullRequest) -> list[Review] {
-    reviews = [pr->:HasReview:->][?:Review];
+    reviews = [pr ->:HasReview:->][?:Review];
     return sorted(reviews, key=lambda (r: Review) -> float { return 0 - r.started; });
 }
 
 def review_files(review: Review) -> list[FileChange] {
-    files = [review->:Covers:->][?:FileChange];
+    files = [review ->:Covers:->][?:FileChange];
     return sorted(files, key=lambda (f: FileChange) -> int { return 0 - f.risk; });
 }
 
 """Every finding of a review, two hops away: Review -> FileChange -> Finding."""
 def review_findings(review: Review) -> list[Finding] {
-    return [review->:Covers:->->:Raised:->][?:Finding];
+    return [review ->:Covers:-> ->:Raised:->][?:Finding];
 }
 
 def file_change(review: Review, file_path: str) -> FileChange | None {
-    found = [review->:Covers:->][?:FileChange, path == file_path];
+    found = [review ->:Covers:->][?:FileChange, path == file_path];
     return found[0] if found else None;
 }
 
@@ -318,38 +255,41 @@ def review_of(pr: PullRequest, status: str = "done") -> Review | None {
 
 """Look a review up by id under the caller's own root; one query, never another user's."""
 def find_review(review_id: str) -> Review | None {
-    found = [root->:HasRepo:->->:HasPR:->->:HasReview:->][?:Review, id == review_id];
+    found = [root ->:HasRepo:-> ->:HasPR:-> ->:HasReview:->][?:Review, id == review_id];
     return found[0] if found else None;
 }
 
 def find_finding(finding_id: str) -> Finding | None {
-    found = [root->:HasRepo:->->:HasPR:->->:HasReview:->->:Covers:->->:Raised:->][?:Finding, id == finding_id];
+    found = [root ->:HasRepo:-> ->:HasPR:-> ->:HasReview:-> ->:Covers:-> ->:Raised:->][?:Finding, id
+        == finding_id];
     return found[0] if found else None;
 }
 
 def review_pr(review: Review) -> PullRequest | None {
-    found = [review<-:HasReview:<-][?:PullRequest];
+    found = [review <-:HasReview:<-][?:PullRequest];
     return found[0] if found else None;
 }
 
 def finding_review(f: Finding) -> Review | None {
-    found = [f<-:Raised:<-<-:Covers:<-][?:Review];
+    found = [f <-:Raised:<- <-:Covers:<-][?:Review];
     return found[0] if found else None;
 }
 
 def repo_insights(repo: Repo) -> list[Insight] {
-    found = [repo->:Pinned:->][?:Insight];
+    found = [repo ->:Pinned:->][?:Insight];
     return sorted(found, key=lambda (i: Insight) -> float { return 0 - i.created; });
 }
 
 def chat_thread(thread_id: str) -> ChatThread {
-    found = [root->:Talked:->][?:ChatThread, id == thread_id];
-    if found {
-        return found[0];
+    with _making {
+        found = [root ->:Talked:->][?:ChatThread, id == thread_id];
+        if found {
+            return found[0];
+        }
+        t = ChatThread(id=thread_id, created=now(), updated=now());
+        root +>:Talked:+> t;
+        return t;
     }
-    t = ChatThread(id=thread_id, created=now(), updated=now());
-    root +>:Talked:+> t;
-    return t;
 }
 
 def refresh_pr_rollup(pr: PullRequest) {
@@ -360,13 +300,7 @@ def refresh_pr_rollup(pr: PullRequest) {
     pr.last_review = latest.id;
     pr.verdict = latest.verdict;
     pr.risk = latest.risk;
-    pr.open_findings = len(
-        [
-            f
-            for f in review_findings(latest)
-            if f.status == "open"
-        ]
-    );
+    pr.open_findings = len([f for f in review_findings(latest) if f.status == "open"]);
 }
 
 def touch_rollup(f: Finding) {
@@ -386,24 +320,20 @@ walker:priv CollectFindings {
         found: list[Finding] = [];
 
     can at_repo with Repo entry {
-        visit [here->:HasPR:->];
+        visit [here ->:HasPR:->];
     }
 
     can at_pr with PullRequest entry {
-        done = [
-            rv
-            for rv in pr_reviews(here)
-            if rv.status == "done"
-        ];
+        done = [rv for rv in pr_reviews(here) if rv.status == "done"];
         visit done[:1] if self.latest_only else done;
     }
 
     can at_review with Review entry {
-        visit [here->:Covers:->];
+        visit [here ->:Covers:->];
     }
 
     can at_file with FileChange entry {
-        visit [here->:Raised:->];
+        visit [here ->:Raised:->];
     }
 
     can at_finding with Finding entry {
@@ -413,9 +343,7 @@ walker:priv CollectFindings {
     }
 }
 
-def repo_findings(
-    repo: Repo, status: str = "", latest_only: bool = True
-) -> list[Finding] {
+def repo_findings(repo: Repo, status: str = "", latest_only: bool = True) -> list[Finding] {
     w = repo spawn CollectFindings(status=status, latest_only=latest_only);
     return w.found;
 }

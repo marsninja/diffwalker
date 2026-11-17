@@ -7,7 +7,7 @@ import from "lucide-react" {
     MessageSquare,
     X,
     ChevronDown,
-    ChevronRight
+    ChevronRight,
 }
 
 def status_icon(status: str) -> any {
@@ -23,50 +23,42 @@ def status_icon(status: str) -> any {
     return FileCode2;
 }
 
-def FileRow(f: any, risk: int, count: int, active: bool, onPick: any) -> JsxElement {
+def FileRow(
+    f: FileDiff, risk: int, count: int, active: bool, onPick: Callable[[str], None]
+) -> JsxElement {
     Icon = status_icon(f.status);
-    <button
+    return <button
         type="button"
-        onClick={lambda { onPick(f.path); }}
-        className={"flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors "
-            + (
-                "bg-primary/12 text-foreground"
-                    if active
-                    else "text-muted-foreground hover:bg-muted hover:text-foreground"
-            )}
+        onClick={lambda { onPick(f.path) }}
+        className={"flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors " + ("bg-primary/12 text-foreground" if active else "text-muted-foreground hover:bg-muted hover:text-foreground")}
         title={f.path}
     >
         <span
             className="inline-block size-2 shrink-0 rounded-full"
             style={{"background": risk_color(risk)}}
         ></span>
-        <Icon className="size-3.5 shrink-0"/>
+        <Icon className="size-3.5 shrink-0" />
         <span className="min-w-0 flex-1">
-            <span className="block truncate font-mono text-[11.5px]">
-                {base_name(f.path)}
-            </span>
-            <span className="block truncate text-[10px] opacity-70">
-                {dir_name(f.path)}
-            </span>
+            <span className="block truncate font-mono text-[11.5px]">{base_name(f.path)}</span>
+            <span className="block truncate text-[10px] opacity-70">{dir_name(f.path)}</span>
         </span>
-        {if count > 0 {
-            <span
-                className="inline-flex items-center gap-0.5 rounded-full bg-primary/15 px-1.5 text-[10px] text-primary"
-            >
-                <MessageSquare className="size-2.5"/>
-                {str(count)}
-            </span>
-        }}
+        {
+            if count > 0 {
+                <span
+                    className="inline-flex items-center gap-0.5 rounded-full bg-primary/15 px-1.5 text-[10px] text-primary"
+                ><MessageSquare className="size-2.5" />{str(count)}</span>
+            }
+        }
         <span className="shrink-0 tabular text-[10px]">
             <span className="text-[var(--status-good)]">{"+" + str(f.additions)}</span>
-            <span className="ml-1 text-[var(--status-critical)]">
-                {"−" + str(f.deletions)}
-            </span>
+            <span className="ml-1 text-[var(--status-critical)]">{"−" + str(f.deletions)}</span>
         </span>
-    </button>
+    </button>;
 }
 
-def CommentForm(pr_id: str, path: str, line: int, onDone: any) -> JsxElement {
+def CommentForm(
+    pr_id: str, path: str, line: int, onDone: Callable[[bool], Coroutine[any, any, None]]
+) -> JsxElement {
     has title: str = "",
         body: str = "",
         sev: str = "medium",
@@ -79,12 +71,10 @@ def CommentForm(pr_id: str, path: str, line: int, onDone: any) -> JsxElement {
         await add_comment(pr_id, path, line, sev, "correctness", title, body, "");
         busy = False;
         toast("Comment posted on line " + str(line), "success");
-        onDone(True);
+        await onDone(True);
     }
-    <div className="m-2 rounded-xl border border-primary/40 bg-card p-3 font-sans">
-        <div className="mb-2 text-xs font-medium">
-            {"New comment on line " + str(line)}
-        </div>
+    return <div className="m-2 rounded-xl border border-primary/40 bg-card p-3 font-sans">
+        <div className="mb-2 text-xs font-medium">{"New comment on line " + str(line)}</div>
         <div className="flex gap-2">
             <select
                 value={sev}
@@ -92,9 +82,11 @@ def CommentForm(pr_id: str, path: str, line: int, onDone: any) -> JsxElement {
                 className="h-8 rounded-md border border-border bg-background px-1.5 text-xs"
                 aria-label="Severity"
             >
-                {for s in sev_order() {
-                    <option key={s} value={s}>{s}</option>
-                }}
+                {
+                    for s in sev_order() {
+                        <option key={s} value={s}>{s}</option>
+                    }
+                }
             </select>
             <input
                 value={title}
@@ -114,7 +106,7 @@ def CommentForm(pr_id: str, path: str, line: int, onDone: any) -> JsxElement {
         <div className="mt-2 flex justify-end gap-2">
             <button
                 type="button"
-                onClick={lambda { onDone(False); }}
+                onClick={lambda { onDone(False) }}
                 className="rounded-md px-2.5 py-1 text-xs hover:bg-muted"
             >
                 Cancel
@@ -124,25 +116,31 @@ def CommentForm(pr_id: str, path: str, line: int, onDone: any) -> JsxElement {
                 disabled={busy}
                 onClick={submit}
                 className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50"
-            >
-                {"Posting…" if busy else "Comment"}
-            </button>
+            >{"Posting…" if busy else "Comment"}</button>
         </div>
-    </div>
+    </div>;
 }
 
 def:pub FileDiffView(
     pr_id: str,
-    f: any,
-    findings: list[any],
+    f: FileDiff,
+    findings: list[Finding],
     focusLine: int = 0,
     flashKey: str = "",
-    onChanged: any = None
+    onChanged: Callable[[], Coroutine[any, any, None]] | None = None,
 ) -> JsxElement {
     has composing: int = 0,
         collapsed: bool = False,
         boxW: int = 720,
-        box: Ref[HTMLDivElement] = Ref();
+        box: Ref[HTMLDivElement] = Ref(),
+        on_resize: Ref[Callable[[], None]] = Ref();
+
+    async def comment_done(posted: bool) {
+        composing = 0;
+        if posted and onChanged {
+            await onChanged();
+        }
+    }
 
     can with entry {
         def measure {
@@ -153,7 +151,12 @@ def:pub FileDiffView(
         }
         measure();
         window.addEventListener("resize", measure);
-        return lambda { window.removeEventListener("resize", measure); };
+        on_resize.current = measure;
+    }
+    can with exit {
+        if on_resize.current {
+            window.removeEventListener("resize", on_resize.current);
+        }
     }
     can with [f.path, focusLine, flashKey] entry {
         if focusLine > 0 {
@@ -167,11 +170,11 @@ def:pub FileDiffView(
                         el.classList.add("agent-flash");
                     }
                 },
-                120
+                120,
             );
         }
     }
-    by_line: dict[str, list[any]] = {};
+    by_line: dict[str, list[Finding]] = {};
     for fd in findings {
         key = str(fd.line);
         if key not in by_line {
@@ -187,17 +190,13 @@ def:pub FileDiffView(
             }
         }
     }
-    orphans = [
-        fd
-        for fd in findings
-        if str(fd.line) not in anchored
-    ];
-    body: list[any] = [];
+    orphans = [fd for fd in findings if str(fd.line) not in anchored];
+    body: list[JsxElement] = [];
     for (hi, h) in enumerate(f.hunks) {
         body.append(
             <tr key={"h" + str(hi)} className="bg-primary/5 text-muted-foreground">
                 <td colSpan={3} className="px-3 py-1 text-[11px]">{h.header}</td>
-            </tr>
+            </tr>,
         );
         for (li, ln) in enumerate(h.lines) {
             row_key = str(hi) + "-" + str(li);
@@ -206,42 +205,33 @@ def:pub FileDiffView(
                 <tr
                     key={"l" + row_key}
                     id={("L" + str(new_no)) if ln.kind != "del" else ("D" + row_key)}
-                    className={"group "
-                        + (
-                            "diff-add"
-                                if ln.kind == "add"
-                                else ("diff-del" if ln.kind == "del" else "")
-                        )}
+                    className={"group " + ("diff-add" if ln.kind == "add" else ("diff-del" if ln.kind == "del" else ""))}
                 >
                     <td
                         className="gutter w-[1%] select-none whitespace-nowrap px-2 text-right text-[10.5px] text-muted-foreground/70"
-                    >
-                        {str(ln.old_no) if ln.kind != "add" else ""}
-                    </td>
+                    >{str(ln.old_no) if ln.kind != "add" else ""}</td>
                     <td
                         className="gutter relative w-[1%] select-none whitespace-nowrap px-2 text-right text-[10.5px] text-muted-foreground/70"
                     >
-                        {if ln.kind != "del" {
-                            <button
-                                type="button"
-                                title="Comment on this line"
-                                onClick={lambda { composing = new_no; }}
-                                className="absolute -left-1 top-0.5 hidden size-4 place-items-center rounded bg-primary text-primary-foreground group-hover:grid"
-                            >
-                                <Plus className="size-3"/>
-                            </button>
-                        }}
+                        {
+                            if ln.kind != "del" {
+                                <button
+                                    type="button"
+                                    title="Comment on this line"
+                                    onClick={lambda { composing = ln.new_no; }}
+                                    className="absolute -left-1 top-0.5 hidden size-4 place-items-center rounded bg-primary text-primary-foreground group-hover:grid"
+                                ><Plus className="size-3" /></button>
+                            }
+                        }
                         {str(new_no) if ln.kind != "del" else ""}
                     </td>
                     <td className="whitespace-pre px-3">
                         <span className="mr-2 select-none text-muted-foreground/60">
-                            {"+"
-                                if ln.kind == "add"
-                                else ("−" if ln.kind == "del" else " ")}
+                            {"+" if ln.kind == "add" else ("−" if ln.kind == "del" else " ")}
                         </span>
                         {ln.text}
                     </td>
-                </tr>
+                </tr>,
             );
             if ln.kind != "del" and str(new_no) in by_line {
                 body.append(
@@ -251,18 +241,20 @@ def:pub FileDiffView(
                                 className="sticky left-3 space-y-2"
                                 style={{"width": str(min(760, boxW - 24)) + "px"}}
                             >
-                                {for fd in by_line[str(new_no)] {
-                                    <FindingCard
-                                        key={fd.id}
-                                        f={fd}
-                                        inline={True}
-                                        onChanged={onChanged}
-                                        flash={focusLine == new_no}
-                                    />
-                                }}
+                                {
+                                    for fd in by_line[str(new_no)] {
+                                        <FindingCard
+                                            key={fd.id}
+                                            f={fd}
+                                            inline={True}
+                                            onChanged={onChanged}
+                                            flash={focusLine == new_no}
+                                        />
+                                    }
+                                }
                             </div>
                         </td>
-                    </tr>
+                    </tr>,
                 );
             }
             if composing > 0 and ln.kind != "del" and composing == new_no {
@@ -277,84 +269,87 @@ def:pub FileDiffView(
                                     pr_id={pr_id}
                                     path={f.path}
                                     line={new_no}
-                                    onDone={lambda (posted: bool) {
-                                        composing = 0;
-                                        if posted and onChanged {
-                                            onChanged();
-                                        }
-                                    }}
+                                    onDone={comment_done}
                                 />
                             </div>
                         </td>
-                    </tr>
+                    </tr>,
                 );
             }
         }
     }
-    <div className="overflow-hidden rounded-xl border border-border bg-card">
+    return <div className="overflow-hidden rounded-xl border border-border bg-card">
         <button
             type="button"
             onClick={lambda { collapsed = not collapsed; }}
             className="sticky top-0 z-10 flex w-full items-center gap-2 border-b border-border bg-card/95 px-3 py-2 text-left backdrop-blur"
         >
-            {(<ChevronRight className="size-4 text-muted-foreground"/>)
+            {(<ChevronRight className="size-4 text-muted-foreground" />)
                 if collapsed
-                else (<ChevronDown className="size-4 text-muted-foreground"/>)}
+                else (<ChevronDown className="size-4 text-muted-foreground" />)}
             <span className="min-w-0 truncate font-mono text-xs">{f.path}</span>
-            {if f.status != "modified" {
-                <span
-                    className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
-                >
-                    {f.status}
-                </span>
-            }}
+            {
+                if f.status != "modified" {
+                    <span
+                        className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                    >{f.status}</span>
+                }
+            }
             <span className="ml-auto shrink-0 tabular text-[11px]">
-                <span className="text-[var(--status-good)]">
-                    {"+" + str(f.additions)}
-                </span>
+                <span className="text-[var(--status-good)]">{"+" + str(f.additions)}</span>
                 <span className="ml-1.5 text-[var(--status-critical)]">
                     {"−" + str(f.deletions)}
                 </span>
             </span>
         </button>
-        {if not collapsed {
-            <div ref={box} className="overflow-x-auto thin-scroll">
-                {if f.binary {
-                    <p className="p-4 text-xs text-muted-foreground">
+        {
+            if not collapsed {
+                <div ref={box} className="overflow-x-auto thin-scroll">
+                    {
+                        if f.binary {
+                            <p className="p-4 text-xs text-muted-foreground">
                         Binary file not shown.
                     </p>
-                }}
-                {if len(orphans) > 0 {
-                    <div className="space-y-2 border-b border-border p-3">
-                        {for fd in orphans {
-                            <FindingCard
-                                key={fd.id}
-                                f={fd}
-                                inline={False}
-                                onChanged={onChanged}
-                            />
-                        }}
-                    </div>
-                }}
-                <table
-                    className="w-full border-collapse font-mono text-[12px] leading-[1.55]"
-                >
-                    <tbody>{body}</tbody>
-                </table>
-                {if f.truncated {
-                    <p
-                        className="border-t border-border p-3 text-xs text-muted-foreground"
-                    >
+                        }
+                    }
+                    {
+                        if len(orphans) > 0 {
+                            <div className="space-y-2 border-b border-border p-3">
+                                {
+                                    for fd in orphans {
+                                        <FindingCard
+                                            key={fd.id}
+                                            f={fd}
+                                            inline={False}
+                                            onChanged={onChanged}
+                                        />
+                                    }
+                                }
+                            </div>
+                        }
+                    }
+                    <table className="w-full border-collapse font-mono text-[12px] leading-[1.55]">
+                        <tbody>{body}</tbody>
+                    </table>
+                    {
+                        if f.truncated {
+                            <p className="border-t border-border p-3 text-xs text-muted-foreground">
                         Diff truncated for display; the reviewer saw the full patch window.
                     </p>
-                }}
-            </div>
-        }}
-    </div>
+                        }
+                    }
+                </div>
+            }
+        }
+    </div>;
 }
 
 def:pub FileList(
-    files: list[any], risks: list[any], findings: list[any], active: str, onPick: any
+    files: list[FileDiff],
+    risks: list[FileRisk],
+    findings: list[Finding],
+    active: str,
+    onPick: Callable[[str], None],
 ) -> JsxElement {
     risk_of: dict[str, int] = {};
     for r in risks {
@@ -363,22 +358,22 @@ def:pub FileList(
     counts: dict[str, int] = {};
     for fd in findings {
         if fd.status == "open" {
-            counts[fd.path] = (counts[fd.path] or 0) + 1;
+            counts[fd.path] = counts.get(fd.path, 0) + 1;
         }
     }
-    ordered = sorted(
-        files, key=lambda (f: any) -> int { return 0 - (risk_of[f.path] or 0); }
-    );
-    <div className="space-y-0.5">
-        {for f in ordered {
-            <FileRow
-                key={f.path}
-                f={f}
-                risk={risk_of[f.path] or 0}
-                count={counts[f.path] or 0}
-                active={f.path == active}
-                onPick={onPick}
-            />
-        }}
-    </div>
+    ordered = sorted(files, key=lambda (f: FileDiff) -> int { return 0 - risk_of.get(f.path, 0); });
+    return <div className="space-y-0.5">
+        {
+            for f in ordered {
+                <FileRow
+                    key={f.path}
+                    f={f}
+                    risk={risk_of.get(f.path, 0)}
+                    count={counts.get(f.path, 0)}
+                    active={f.path == active}
+                    onPick={onPick}
+                />
+            }
+        }
+    </div>;
 }

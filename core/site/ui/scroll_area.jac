@@ -1,17 +1,15 @@
 import from "radix-ui" { ScrollArea as ScrollAreaPrimitive }
 
-def:pub ScrollArea(props: any) -> JsxElement {
-    <ScrollAreaPrimitive.Root
-        {**props}
+def:pub ScrollArea(**kwargs: any) -> JsxElement {
+    return <ScrollAreaPrimitive.Root
+        {...kwargs}
         data-slot="scroll-area"
-        className={cn("cn-scroll-area relative", props["className"])}
+        className={cn("cn-scroll-area relative", kwargs.get("className"))}
     >
         <ScrollAreaPrimitive.Viewport
             data-slot="scroll-area-viewport"
             className="cn-scroll-area-viewport focus-visible:ring-ring/50 size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:outline-1"
-        >
-            {props["children"]}
-        </ScrollAreaPrimitive.Viewport>
+        >{kwargs.get("children")}</ScrollAreaPrimitive.Viewport>
         <ScrollAreaPrimitive.ScrollAreaScrollbar
             data-slot="scroll-area-scrollbar"
             data-orientation="vertical"
@@ -23,25 +21,22 @@ def:pub ScrollArea(props: any) -> JsxElement {
                 className="rounded-full bg-border relative flex-1"
             />
         </ScrollAreaPrimitive.ScrollAreaScrollbar>
-        <ScrollAreaPrimitive.Corner/>
-    </ScrollAreaPrimitive.Root>
+        <ScrollAreaPrimitive.Corner />
+    </ScrollAreaPrimitive.Root>;
 }
 
-def:pub ScrollBar(props: any) -> JsxElement {
-    orientation = props["orientation"] or "vertical";
-    <ScrollAreaPrimitive.ScrollAreaScrollbar
-        {**props}
+def:pub ScrollBar(**kwargs: any) -> JsxElement {
+    orientation = kwargs.get("orientation") or "vertical";
+    return <ScrollAreaPrimitive.ScrollAreaScrollbar
+        {...kwargs}
         data-slot="scroll-area-scrollbar"
         data-orientation={orientation}
         orientation={orientation}
-        className={cn(
-            "data-horizontal:h-2.5 data-horizontal:flex-col data-horizontal:border-t data-horizontal:border-t-transparent data-vertical:h-full data-vertical:w-2.5 data-vertical:border-l data-vertical:border-l-transparent flex touch-none pt-px pb-px transition-colors select-none",
-            props["className"]
-        )}
+        className={cn("data-horizontal:h-2.5 data-horizontal:flex-col data-horizontal:border-t data-horizontal:border-t-transparent data-vertical:h-full data-vertical:w-2.5 data-vertical:border-l data-vertical:border-l-transparent flex touch-none pt-px pb-px transition-colors select-none", kwargs.get("className"))}
     >
         <ScrollAreaPrimitive.ScrollAreaThumb
             data-slot="scroll-area-thumb"
             className="rounded-full bg-border relative flex-1"
         />
-    </ScrollAreaPrimitive.ScrollAreaScrollbar>
+    </ScrollAreaPrimitive.ScrollAreaScrollbar>;
 }
