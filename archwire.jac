@@ -10,7 +10,6 @@ graph spaces {
     app cli { run cli; }
 }
 
-# The desktop app with diffwalker itself in the window's program: no server to reach.
 graph spaces local {
     app desktop { run site, api; }
 }
