@@ -369,7 +369,7 @@ diffwalker is written in the Jac that [neojac](https://github.com/marsninja/neoj
 - The desktop app's window exists for Linux only (GTK 3 with WebKitGTK 4.1).
 - A native caller gives a call 30 seconds, and `start_review` returns when the review ends. `review --live` treats the timeout as "still running" and follows the review on the live stream.
 
-What has been run: all four apps build. The web app, the CLI (in-process and `--live`) and the desktop app's two modes were run end to end against a scripted stand-in for the model API (`ANTHROPIC_BASE_URL`), driving the site in headless Chromium, and the web and desktop apps were stopped and started again on the data they kept. The phone app was built but not run on a device. Nothing has been run against a real model yet.
+What has been run: all four apps build. The web app, the CLI (in-process and `--live`) and the desktop app's two modes were run end to end against a scripted stand-in for the model API (`ANTHROPIC_BASE_URL`), driving the site in headless Chromium, and the web and desktop apps were stopped and started again on the data they kept. Against Anthropic's API (`claude-sonnet-5-5`), a full review ran from the server and from the command line, and the Copilot answered and drove the site, over the API and in its pane in headless Chromium. The phone app was built but not run on a device.
 
 ## License
 

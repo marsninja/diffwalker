@@ -18,8 +18,13 @@ desktop app's two modes were run end to end against a scripted stand-in for
 the model API (`ANTHROPIC_BASE_URL`), driving the site in headless Chromium.
 The web app and the desktop app were stopped and started again on the data
 they kept.
-The phone app was built but not run on a device. Nothing has been run against
-a real model yet.
+Against Anthropic's API (`claude-sonnet-5-5`): a full review from the server
+(8 stages, 9 findings on the demo's refunds branch, 62 seconds, $0.13), a
+review from the command line in its own process (its investigator chose what
+to read with `visit ... by llm`), and Copilot turns over the API and in the
+site's pane in headless Chromium, where it listed findings, opened the pull
+request and jumped to the line it was talking about. The phone app was built
+but not run on a device.
 
 ## Found and fixed in neojac
 
@@ -50,6 +55,7 @@ branch.
 | Starting again on kept data | The server could not start a second time: `web can't start with the data it kept ... holds 1 core.graph.Review ... whose types this program no longer has`. A module starts on its first use unless it serves an endpoint, the node types are declared in `core/graph.jac`, which serves none, and the store read its rows before that module had started. | A module that declares a node or an edge type the app keeps starts with the program. | `core/graph.jac` and `core/wire.jac`: the web app and the desktop app start again with their reviews. |
 | A stream whose reader leaves | A stream whose client had gone was dropped where it paused: a generator had no `close`, so nothing after its `yield` ran, and a Copilot turn whose pane closed mid-answer lost what it had said. | A generator has `close()` and `throw()`, one let go while paused is closed, and the server closes a stream whose client has gone: its `finally` blocks run, and what it wrote is kept. | `_turn` in `core/api.jac` keeps the turn in its `finally`, so a pane closed mid-answer keeps the words it got. |
 | A task's type | A task's type could not be written (`list[Task[int]]` was E5090), so a field could not hold one, and `ReviewRun` had to queue its jobs and start every task in one comprehension in `gather`. | `Task[T]` is the type of a task whose value is a `T`. | `Pending.task` in `core/review/engine.jac`: `ReviewRun.submit` starts a file's reviewer where the walker visits the file, and `gather` waits for it in the walker's exit. |
+| `sem` on an enum's member | `sem Severity.CRITICAL = ...` was E2018, so what each severity and verdict means was written in the `sem` of every field that holds one. | An enum's member takes a `sem`, and an enum's schema says what each described member means, after the `sem` of the field or parameter that holds it. | `Severity` and `VerdictKind` in `core/review/agents.jac`: each member is described once, where the enum is. |
 | Memory that one thread allocates and another frees | A block freed by a thread that did not allocate it stayed with the freeing thread for ever, so a server that answers calls on threads grew with every call. | A small block goes back to the page it came from, and a large one past what a thread keeps is any thread's to take. | The server, under any load. |
 
 ## Open
@@ -83,5 +89,4 @@ its fix yet.
 | Defect or gap | Where it shows in diffwalker |
 | --- | --- |
 | An enum cannot name its values' type (`enum Severity: str` is E5090). | `Severity`, `Category` and `VerdictKind` in `core/review/agents.jac` are plain enums, and the engine reads `.value` where it needs the string. |
-| `sem` cannot describe an enum's member (`sem Severity.CRITICAL = ...` is E2018). | What each severity and verdict means is written in the `sem` of the field that holds it: `DraftFinding.severity`, `Verdict.severity`, `ReviewSummary.verdict`. |
 | `os.fdopen` is missing. | `run_login` in `cli/commands/common.jac` opens the token file with `os.open` and passes the descriptor to `open`. |

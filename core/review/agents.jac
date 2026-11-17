@@ -10,6 +10,12 @@ enum Severity {
     INFO = "info",
 }
 
+sem Severity.CRITICAL = "Will break production, lose data, or open a security hole; must fix before merge.";
+sem Severity.HIGH = "A real bug or risk likely to bite users; should fix before merge.";
+sem Severity.MEDIUM = "A defect or design problem worth fixing; reasonable people may defer.";
+sem Severity.LOW = "Minor issue: small inefficiency, unclear naming, missing edge-case handling.";
+sem Severity.INFO = "Observation or nit; no action required.";
+
 enum Category {
     CORRECTNESS = "correctness",
     SECURITY = "security",
@@ -26,6 +32,10 @@ enum VerdictKind {
     COMMENT = "comment",
     REQUEST_CHANGES = "request_changes",
 }
+
+sem VerdictKind.APPROVE = "Safe to merge as is; any findings are minor.";
+sem VerdictKind.COMMENT = "Mergeable after the author considers the comments; nothing blocking.";
+sem VerdictKind.REQUEST_CHANGES = "At least one blocking issue (high or critical) must be fixed first.";
 
 obj FileBrief {
     has path: str,
@@ -76,7 +86,7 @@ obj DraftFinding {
 
 sem DraftFinding.path = "Repository-relative path of a file changed in this pull request.";
 sem DraftFinding.line = "Line number in the NEW version of the file, as printed in the patch (the number after + or space). Prefer an added line.";
-sem DraftFinding.severity = "CRITICAL: will break production, lose data, or open a security hole; must fix before merge. HIGH: a real bug or risk likely to bite users; should fix before merge. MEDIUM: a defect or design problem worth fixing; reasonable people may defer. LOW: minor issue: small inefficiency, unclear naming, missing edge-case handling. INFO: observation or nit; no action required.";
+sem DraftFinding.severity = "How bad the problem is.";
 sem DraftFinding.title = "Imperative, specific, under 80 characters.";
 sem DraftFinding.body = "Explain the concrete failure: inputs or state that trigger it and the consequence. Markdown allowed, 1-4 sentences.";
 sem DraftFinding.suggestion = "Replacement code for lines line..end_line when the fix is small and unambiguous, else an empty string.";
@@ -123,7 +133,7 @@ obj Verdict {
 
 sem Verdict.id = "The id of the draft finding this verdict is about, copied exactly.";
 sem Verdict.keep = "False when the finding is wrong, speculative, duplicated, already handled by the code shown, or not actionable.";
-sem Verdict.severity = "CRITICAL: will break production, lose data, or open a security hole; must fix before merge. HIGH: a real bug or risk likely to bite users; should fix before merge. MEDIUM: a defect or design problem worth fixing; reasonable people may defer. LOW: minor issue: small inefficiency, unclear naming, missing edge-case handling. INFO: observation or nit; no action required.";
+sem Verdict.severity = "The severity the finding deserves, by its actual impact.";
 sem Verdict.reason = "One sentence justifying the decision, citing the code.";
 
 obj ReviewSummary {
@@ -135,7 +145,7 @@ obj ReviewSummary {
         suggested_tests: list[str];
 }
 
-sem ReviewSummary.verdict = "APPROVE: safe to merge as is; any findings are minor. COMMENT: mergeable after the author considers the comments; nothing blocking. REQUEST_CHANGES: at least one blocking issue (high or critical) must be fixed first.";
+sem ReviewSummary.verdict = "What the author should do next.";
 sem ReviewSummary.risk = "0-100 merge risk considering findings, blast radius, and test coverage.";
 sem ReviewSummary.summary = "A 3-5 sentence review summary addressed to the author. Markdown allowed.";
 sem ReviewSummary.highlights = "Up to three things the change does well.";
