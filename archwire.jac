@@ -47,6 +47,7 @@ graph import {
     core.site.pages.Insights ++> pages.insights { Insights }
     core.site.pages.Reviews ++> pages.reviews.index { Reviews }
     core.site.review.ReviewWorkspace ++> pages.reviews { ReviewWorkspace }
+    core.site.desktop.BackendGate ++> web { BackendGate }
     core.site.shell.AppShell ++> pages.layout { RootLayout }
     core.wire ++> [
         cli.commands.ask { Card, CopilotFrame, LiveEvent, UiArgs },
@@ -439,9 +440,11 @@ graph import core.site {
         review.ReviewWorkspace { Empty, KindBadge, Panel, RiskMeter, Skeleton, VerdictPill },
     ]
     copilot.CopilotPane ++> shell.AppShell { CopilotPane }
-    desktop.BackendGate ++> [
-        auth.SignIn { ModeSwitch },
-        shell.AppShell { ModeSwitch, profiles_on },
+    desktop.BackendGate ++> auth.SignIn | shell.AppShell { ModeSwitch }
+    desktop.desk ++> [
+        desktop.BackendGate { Desk, choose_mode, desk, leave_profile, load_desk, open_profile },
+        live { leave_profile, profiles_on },
+        shell.AppShell { profiles_on },
     ]
     fmt ++> [
         built.Built { fmt_num, series_color },

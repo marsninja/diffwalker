@@ -1,5 +1,4 @@
 import from "@jac/runtime" { RemoteRejected, jacIsLoggedIn, jacLogout }
-import from "@jac/desktop" { profiles }
 
 """A toast the shell shows."""
 obj Toast {
@@ -122,10 +121,10 @@ def _dispatch(evt: LiveEvent) {
 }
 
 """A rejected session. On local profiles there is no sign-in to return to: reload, and
-the desktop host signs the page in again as the active profile; a second rejection
-within half a minute leaves the profile instead of looping."""
+the app signs the page in again as the open profile; a second rejection within half a
+minute closes the profile instead of looping."""
 def:pub signed_out {
-    if profiles.enabled() {
+    if profiles_on() {
         last = 0;
         try {
             last = int(sessionStorage.getItem("dw-reauth") or "0");
@@ -134,7 +133,7 @@ def:pub signed_out {
         }
         now = Date.now();
         if now - last < 30000 {
-            profiles.leave();
+            queueMicrotask(lambda { leave_profile() });
             return;
         }
         sessionStorage.setItem("dw-reauth", str(now));

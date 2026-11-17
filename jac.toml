@@ -15,6 +15,11 @@ npm = "mobile"
 [apps.desktop]
 name = "diffwalker"
 identifier = "dev.diffwalker.desktop"
+# The one desktop program runs either way, and its user chooses which at first launch
+# and from the sidebar: `default` against a diffwalker server, `local` on this computer.
+profiles = ["default", "local"]
+# On this computer there is no sign-in: named profiles, each its own root.
+local_users = true
 
 [apps.desktop.window]
 title = "diffwalker"
