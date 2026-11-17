@@ -438,7 +438,8 @@ def _frame(ev: ByEvent, reply: ChatReply, spent: ByUsage) -> CopilotFrame | None
     return None;
 }
 
-"""One Copilot turn as the frames it makes, kept in the caller's chat thread once it ends.
+"""One Copilot turn as the frames it makes, kept in the caller's chat thread when it ends,
+and when its reader leaves before it does (the stream is closed where it paused).
 A stream runs on one thread from start to end, so the session and the agent's context
 set here hold for every tool the turn calls."""
 def _turn(
@@ -457,48 +458,52 @@ def _turn(
     cards: list[Card] = [];
     set_agent(AgentCtx(repo=repo, session=session, thread=thread_id, user=current_user()), cards);
     clear_stop(thread_id);
-    if not llm_ready() {
-        reply.text = "Copilot needs credentials for "
-            + model_name()
-            + " in the server environment (or the project's `.env`).";
-        yield CopilotFrame(t="chunk", text=reply.text);
-    } else {
-        sent = 0;
-        spent = ByUsage();
-        try {
-            for ev in copilot(message, ui_state, history) {
-                frame = _frame(ev, reply, spent);
-                if frame is not None {
-                    yield frame;
+    try {
+        if not llm_ready() {
+            reply.text = "Copilot needs credentials for "
+                + model_name()
+                + " in the server environment (or the project's `.env`).";
+            yield CopilotFrame(t="chunk", text=reply.text);
+        } else {
+            sent = 0;
+            spent = ByUsage();
+            try {
+                for ev in copilot(message, ui_state, history) {
+                    frame = _frame(ev, reply, spent);
+                    if frame is not None {
+                        yield frame;
+                    }
+                    while sent < len(cards) {
+                        yield CopilotFrame(t="card", card=cards[sent]);
+                        sent += 1;
+                    }
                 }
-                while sent < len(cards) {
-                    yield CopilotFrame(t="card", card=cards[sent]);
-                    sent += 1;
-                }
+            } except Exception as e {
+                logging.getLogger("diffwalker.copilot").exception("copilot turn failed");
+                failure = "\n\n_Copilot hit an error: " + str(e)[:300] + "_";
+                reply.text = reply.text + failure;
+                yield CopilotFrame(t="chunk", text=failure);
             }
-        } except Exception as e {
-            logging.getLogger("diffwalker.copilot").exception("copilot turn failed");
-            failure = "\n\n_Copilot hit an error: " + str(e)[:300] + "_";
-            reply.text = reply.text + failure;
-            yield CopilotFrame(t="chunk", text=failure);
         }
+    } finally {
+        # Kept however the turn ends: its pane may have closed in the middle of the answer.
+        reply.cards = cards;
+        t.transcript = t.transcript + [
+            ChatMsg(
+                role="assistant",
+                text=reply.text,
+                ts=now(),
+                tools=reply.tools,
+                cards=cards,
+                tokens=reply.tokens,
+                cost=reply.cost,
+            ),
+        ];
+        t.history = history;
+        t.updated = now();
+        commit();
+        clear_stop(thread_id);
     }
-    reply.cards = cards;
-    t.transcript = t.transcript + [
-        ChatMsg(
-            role="assistant",
-            text=reply.text,
-            ts=now(),
-            tools=reply.tools,
-            cards=cards,
-            tokens=reply.tokens,
-            cost=reply.cost,
-        ),
-    ];
-    t.history = history;
-    t.updated = now();
-    commit();
-    clear_stop(thread_id);
     yield CopilotFrame(t="done");
 }
 
