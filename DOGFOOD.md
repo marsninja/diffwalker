@@ -71,6 +71,7 @@ branch.
 | An element written as a statement in a JSX block | `{ if busy { <Spinner /> } }` was emitted as an item of a list with no key, so React's development build warned, and with two `if`s in one block the second's element took the first's place when the first was absent. | An element written as a statement of a block, outside its loops, is keyed by its place among the block's elements. A key the program wrote is kept, and an element a loop makes takes its key from the program. | Every `{ if ... { <el /> } }` of the site and the phone app: 173 elements. |
 | A JavaScript method read by its key | `re[Symbol.replace](s, r)` called the method with no `this`, so it failed. | An item of JavaScript's own object that is one of JavaScript's functions is called as JavaScript calls `x[k](...)`: on the object. | `rx` in `core/site/markdown.jac`, which was `String.prototype.replace.call(s, ...)`. |
 | A name `@jac/runtime` does not have | `import from "@jac/runtime" { NoSuchThing }` checked clean, and the import failed when the space was bundled. jac's `SignupResult` was imported that way for a while. | neojac's own modules of a JS space (`@jac/runtime`, `@jac/mobui`) have the names they export under the space's UI binding; any other is E1145, as an npm package's is. | Every import from `@jac/runtime` and `@jac/mobui` in `core/site/` and `core/native/` is checked. |
+| A function an effect makes | An effect that made a lambda was E1225 for the state the lambda reads, though the lambda runs later and reads the state as last shown; listing that state restarted the effect at every change of it. | What a function the effect makes reads is not the effect's: only the effect's own body is checked against its dependency list. | The timer of `AgentWalkthrough` in `core/site/built/Built.jac` is a lambda in its effect again. `ReviewWorkspace.jac`'s live handler stays the named function it became: it is long enough to want a name. |
 
 ## Open
 
@@ -91,7 +92,6 @@ its fix yet.
 
 | Defect or gap | Where it shows in diffwalker |
 | --- | --- |
-| An effect that makes a lambda is E1225 for the state the lambda reads, though the lambda runs later and reads the state as last shown. Listing the state restarts the effect on every change. | The timer of `AgentWalkthrough` in `core/site/built/Built.jac` calls the component's `def advance`, and `ReviewWorkspace.jac`'s live handler is its `def on_review_event`, where each was a lambda inside the effect. |
 | `neojac fmt` lays a JSX element out on one long line when one of its attributes holds a lambda of two or more statements. | The "Previous step" and "Next step" buttons of `AgentWalkthrough` in `core/site/built/Built.jac`, left as the formatter makes them. |
 
 One thing first listed here is the language as designed, and is now in neojac's

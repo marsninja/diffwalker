@@ -210,15 +210,11 @@ def AgentWalkthrough -> JsxElement {
         playing: bool = True,
         timer: Ref[any] = Ref(None);
 
-    def advance {
-        step = (step + 1) % len(AGENT_STEPS);
-    }
-
     can with [playing] entry {
         if not playing {
             return;
         }
-        timer.current = setInterval(advance, 4200);
+        timer.current = setInterval(lambda { step = (step + 1) % len(AGENT_STEPS); }, 4200);
     }
     can with [playing] exit {
         if timer.current {
