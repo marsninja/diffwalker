@@ -1,5 +1,5 @@
 def:pub PhoneFrame(children: any = None) -> JsxElement {
-    <div className="mx-auto w-[360px] max-w-full">
+    return <div className="mx-auto w-[360px] max-w-full">
         <div
             className="relative rounded-[3rem] border-[10px] border-neutral-950 bg-neutral-950 shadow-[0_30px_80px_-20px_rgba(76,52,200,0.55)] ring-1 ring-white/10"
         >
@@ -15,11 +15,9 @@ def:pub PhoneFrame(children: any = None) -> JsxElement {
             <div
                 className="pointer-events-none absolute -right-[13px] top-32 h-20 w-[3px] rounded-r bg-neutral-800"
             ></div>
-            <div
-                className="relative h-[720px] overflow-hidden rounded-[2.4rem] bg-[#0d0c12]"
-            >
+            <div className="relative h-[720px] overflow-hidden rounded-[2.4rem] bg-[#0d0c12]">
                 {children}
             </div>
         </div>
-    </div>
+    </div>;
 }

@@ -12,53 +12,9 @@ obj GitResult {
         err: str = "";
 }
 
-obj RepoInfo {
-    has path: str = "",
-        name: str = "",
-        branch: str = "",
-        head: str = "",
-        base: str = "",
-        remote: str = "",
-        github: str = "",
-        commits: int = 0,
-        files: int = 0,
-        contributors: int = 0,
-        first_commit: str = "",
-        last_commit: str = "",
-        is_git: bool = False,
-        error: str = "";
-}
-
-obj PullRequestRef {
-    has id: str = "",
-        kind: str = "branch",
-        number: int = 0,
-        title: str = "",
-        head: str = "",
-        base: str = "",
-        author: str = "",
-        updated: str = "",
-        updated_ts: int = 0,
-        ahead: int = 0,
-        behind: int = 0,
-        files_changed: int = 0,
-        additions: int = 0,
-        deletions: int = 0,
-        url: str = "",
-        state: str = "open",
-        body: str = "";
-}
-
-obj CommitInfo {
-    has sha: str = "",
-        author: str = "",
-        ts: int = 0,
-        subject: str = "";
-}
-
 glob _memo: dict[str, any] = {},
      _memo_at: dict[str, float] = {},
-     _memo_lock: any = threading.Lock();
+     _memo_lock: threading.Lock = threading.Lock();
 
 def run_git(repo: str, args: list[str], timeout: int = 40) -> GitResult {
     try {
@@ -67,7 +23,7 @@ def run_git(repo: str, args: list[str], timeout: int = 40) -> GitResult {
             capture_output=True,
             text=True,
             timeout=timeout,
-            errors="replace"
+            errors="replace",
         );
         return GitResult(ok=p.returncode == 0, out=p.stdout, err=p.stderr);
     } except Exception as e {
@@ -80,7 +36,8 @@ def git_out(repo: str, args: list[str], timeout: int = 40) -> str {
     return r.out if r.ok else "";
 }
 
-def memo(key: str, ttl: float, producer: Callable[[], any]) -> any {
+"""What `producer` made for `key` within the last `ttl` seconds, or what it makes now."""
+def memo[T](key: str, ttl: float, producer: Callable[[], T]) -> T {
     now = time.time();
     with _memo_lock {
         if key in _memo and now - _memo_at.get(key, 0.0) < ttl {
@@ -95,7 +52,7 @@ def memo(key: str, ttl: float, producer: Callable[[], any]) -> any {
     return value;
 }
 
-def forget(prefix: str) -> None {
+def forget(prefix: str) {
     with _memo_lock {
         for k in list(_memo.keys()) {
             if k.startswith(prefix) {
@@ -125,9 +82,7 @@ def ref_exists(repo: str, ref: str) -> bool {
 }
 
 def default_base(repo: str) -> str {
-    sym = git_out(
-        repo, ["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"]
-    ).strip();
+    sym = git_out(repo, ["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"]).strip();
     candidates: list[str] = ["upstream/main", "main", "master"];
     if sym {
         candidates = candidates + [sym.replace("refs/remotes/", "")];
@@ -179,9 +134,7 @@ def repo_info(repo: str) -> RepoInfo {
         authors = git_out(top, ["shortlog", "-sn", "--no-merges", "HEAD"]).strip();
         first = git_out(
             top, ["log", "--reverse", "--format=%aI", "--max-parents=0", "HEAD"]
-        ).strip().split(
-            "\n"
-        )[0];
+        ).strip().split("\n")[0];
         last = git_out(top, ["log", "-1", "--format=%aI"]).strip();
         return RepoInfo(
             path=top,
@@ -196,7 +149,7 @@ def repo_info(repo: str) -> RepoInfo {
             contributors=len(authors.split("\n")) if authors else 0,
             first_commit=first,
             last_commit=last,
-            is_git=True
+            is_git=True,
         );
     }
     return memo("info:" + repo, 20.0, build);
@@ -225,7 +178,7 @@ def _worktree_pr(repo: str, base: str) -> PullRequestRef | None {
         files_changed=nums[0] + untracked,
         additions=nums[1],
         deletions=nums[2],
-        body=status[:2000]
+        body=status[:2000],
     );
 }
 
@@ -254,9 +207,7 @@ def _branch_prs(repo: str, base: str, limit: int) -> list[PullRequestRef] {
     fmt = "%(refname:short)%09%(committerdate:unix)%09%(committerdate:iso-strict)%09%(authorname)%09%(subject)";
     rows = git_out(
         repo, ["for-each-ref", "refs/heads", "--sort=-committerdate", "--format=" + fmt]
-    ).strip().split(
-        "\n"
-    );
+    ).strip().split("\n");
     base_short = base.split("/")[-1];
     out: list[PullRequestRef] = [];
     for row in rows {
@@ -282,9 +233,7 @@ def _branch_prs(repo: str, base: str, limit: int) -> list[PullRequestRef] {
         if ahead == 0 {
             continue;
         }
-        nums = _shortstat(
-            git_out(repo, ["diff", "--shortstat", base + "..." + name]).strip()
-        );
+        nums = _shortstat(git_out(repo, ["diff", "--shortstat", base + "..." + name]).strip());
         out.append(
             PullRequestRef(
                 id="b-" + short_id(repo + "|branch|" + name),
@@ -299,8 +248,8 @@ def _branch_prs(repo: str, base: str, limit: int) -> list[PullRequestRef] {
                 behind=behind,
                 files_changed=nums[0],
                 additions=nums[1],
-                deletions=nums[2]
-            )
+                deletions=nums[2],
+            ),
         );
     }
     return out;
@@ -325,11 +274,11 @@ def _github_prs(repo: str, slug: str, limit: int) -> list[PullRequestRef] {
                 "--limit",
                 str(limit),
                 "--json",
-                "number,title,headRefName,baseRefName,author,updatedAt,additions,deletions,changedFiles,url,state,body"
+                "number,title,headRefName,baseRefName,author,updatedAt,additions,deletions,changedFiles,url,state,body",
             ],
             capture_output=True,
             text=True,
-            timeout=25
+            timeout=25,
         );
         if p.returncode != 0 {
             return [];
@@ -364,16 +313,14 @@ def _github_prs(repo: str, slug: str, limit: int) -> list[PullRequestRef] {
                 deletions=int(d.get("deletions", 0)),
                 url=str(d.get("url", "")),
                 state=str(d.get("state", "OPEN")).lower(),
-                body=str(d.get("body", "") or "")[:4000]
-            )
+                body=str(d.get("body", "") or "")[:4000],
+            ),
         );
     }
     return out;
 }
 
-def discover_prs(
-    repo: str, include_github: bool = True, limit: int = 24
-) -> list[PullRequestRef] {
+def discover_prs(repo: str, include_github: bool = True, limit: int = 24) -> list[PullRequestRef] {
     def build -> list[PullRequestRef] {
         info = repo_info(repo);
         if not info.is_git {
@@ -407,7 +354,7 @@ def find_pr(repo: str, pr_id: str) -> PullRequestRef | None {
                 kind="github",
                 number=int(pr_id[3:]),
                 title="GitHub PR #" + pr_id[3:],
-                url=f"https://github.com/{info.github}/pull/{pr_id[3:]}"
+                url=f"https://github.com/{info.github}/pull/{pr_id[3:]}",
             );
         }
     }
@@ -423,7 +370,8 @@ def _untracked_patch(repo: str) -> str {
     for name in names.split("\n")[:40] {
         full = os.path.join(repo, name);
         if os.path.islink(full)
-            or not os.path.realpath(full).startswith(os.path.realpath(repo) + os.sep) {
+            or not os.path.realpath(full).startswith(os.path.realpath(repo) + os.sep)
+        {
             continue;
         }
         try {
@@ -440,9 +388,7 @@ def _untracked_patch(repo: str) -> str {
         if lines and lines[-1] == "" {
             lines = lines[:-1];
         }
-        head = f"diff --git a/{name} b/{name}\nnew file mode 100644\n--- /dev/null\n+++ b/{name}\n@@ -0,0 +1,{len(
-            lines
-        )} @@";
+        head = f"diff --git a/{name} b/{name}\nnew file mode 100644\n--- /dev/null\n+++ b/{name}\n@@ -0,0 +1,{len(lines)} @@";
         chunks.append(head + "\n" + "\n".join(["+" + l for l in lines]));
     }
     return "\n".join(chunks);
@@ -451,9 +397,7 @@ def _untracked_patch(repo: str) -> str {
 def pr_diff_text(repo: str, pr: PullRequestRef) -> str {
     def build -> str {
         if pr.kind == "worktree" {
-            tracked = git_out(
-                repo, ["diff", "--no-color", "-U3", "--find-renames", "HEAD"], 60
-            );
+            tracked = git_out(repo, ["diff", "--no-color", "-U3", "--find-renames", "HEAD"], 60);
             return tracked + "\n" + _untracked_patch(repo);
         }
         if pr.kind == "github" {
@@ -464,7 +408,7 @@ def pr_diff_text(repo: str, pr: PullRequestRef) -> str {
                     capture_output=True,
                     text=True,
                     timeout=60,
-                    errors="replace"
+                    errors="replace",
                 );
                 return p.stdout if p.returncode == 0 else "";
             } except Exception {
@@ -472,9 +416,7 @@ def pr_diff_text(repo: str, pr: PullRequestRef) -> str {
             }
         }
         return git_out(
-            repo,
-            ["diff", "--no-color", "-U3", "--find-renames", pr.base + "..." + pr.head],
-            60
+            repo, ["diff", "--no-color", "-U3", "--find-renames", pr.base + "..." + pr.head], 60
         );
     }
     ttl = 5.0 if pr.kind == "worktree" else 300.0;
@@ -498,13 +440,7 @@ def pr_commits(repo: str, pr: PullRequestRef, limit: int = 60) -> list[CommitInf
         return [];
     }
     raw = git_out(
-        repo,
-        [
-            "log",
-            f"-n{limit}",
-            "--format=%H%x09%an%x09%at%x09%s",
-            base + ".." + head
-        ]
+        repo, ["log", f"-n{limit}", "--format=%H%x09%an%x09%at%x09%s", base + ".." + head]
     ).strip();
     out: list[CommitInfo] = [];
     for row in raw.split("\n") {
@@ -515,8 +451,8 @@ def pr_commits(repo: str, pr: PullRequestRef, limit: int = 60) -> list[CommitInf
                     sha=cols[0][:10],
                     author=cols[1],
                     ts=int(cols[2]) if cols[2].isdigit() else 0,
-                    subject=cols[3]
-                )
+                    subject=cols[3],
+                ),
             );
         }
     }
@@ -541,7 +477,9 @@ def github_head_ref(repo: str, pr: PullRequestRef) -> str {
             if not url or not github_slug(url) {
                 continue;
             }
-            r = run_git(repo, ["fetch", "--quiet", "--no-tags", name, f"+pull/{pr.number}/head:{local}"], 90);
+            r = run_git(
+                repo, ["fetch", "--quiet", "--no-tags", name, f"+pull/{pr.number}/head:{local}"], 90
+            );
             if r.ok and ref_exists(repo, local) {
                 return local;
             }
@@ -591,11 +529,7 @@ def read_text(repo: str, path: str, ref: str = "WORKTREE") -> str {
 
 """git grep at a ref (or the worktree); rows are `path:line:text`, whatever was searched."""
 def grep(
-    repo: str,
-    pattern: str,
-    glob_pat: str = "",
-    limit: int = 60,
-    ref: str = "WORKTREE"
+    repo: str, pattern: str, glob_pat: str = "", limit: int = 60, ref: str = "WORKTREE"
 ) -> list[str] {
     args = ["grep", "-n", "-I", "--no-color", "-E", "-e", pattern];
     tree = ref if ref and ref != "WORKTREE" and safe_ref(ref) else "";
@@ -634,29 +568,19 @@ def file_log(repo: str, path: str, limit: int = 12) -> list[CommitInfo] {
                     sha=cols[0][:10],
                     author=cols[1],
                     ts=int(cols[2]) if cols[2].isdigit() else 0,
-                    subject=cols[3]
-                )
+                    subject=cols[3],
+                ),
             );
         }
     }
     return out;
 }
 
-def blame_summary(
-    repo: str, path: str, start: int, end: int, ref: str = "HEAD"
-) -> list[str] {
+def blame_summary(repo: str, path: str, start: int, end: int, ref: str = "HEAD") -> list[str] {
     rev = ref if ref != "WORKTREE" and safe_ref(ref) else "HEAD";
     raw = git_out(
         repo,
-        [
-            "blame",
-            "--line-porcelain",
-            "-L",
-            f"{max(1, start)},{max(start, end)}",
-            rev,
-            "--",
-            path
-        ]
+        ["blame", "--line-porcelain", "-L", f"{max(1, start)},{max(start, end)}", rev, "--", path],
     );
     out: list[str] = [];
     author = "";

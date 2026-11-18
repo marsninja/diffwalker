@@ -1,147 +1,115 @@
+"""`ask`: a Copilot turn in this program, or one the server runs while this terminal and the
+user's browsers follow it."""
 import sys;
 import json;
 import random;
-import from jaclang.byllm.lib { StreamEvent }
+import from stdjac.by { ByEventKind, ByUsage }
+import from stdjac.codec { encode }
+import from stdjac.llm { Message }
+import from stdjac.remote { RemoteError }
 
-def short_args(args: any) -> str {
-    try {
-        text = json.dumps(
-            args,
-            `default=lambda (o: object) -> object { return o?.__dict__ or str(o); }
-        );
-    } except Exception {
-        text = str(args);
-    }
-    return text[:110];
+"""What a UI command was given, as JSON of the arguments it sets."""
+def short_args(args: UiArgs) -> str {
+    given: dict[str, any] = encode(args);
+    return json.dumps({k: v for (k, v) in given.items() if v})[:110];
 }
 
 def run_ask_offline(repo: str, question: str) -> int {
     if not llm_ready() {
         warn(
-            red(
-                "diffwalker: Copilot needs ANTHROPIC_API_KEY (environment or the project's .env)"
-            )
+            red("diffwalker: Copilot needs ANTHROPIC_API_KEY (environment or the project's .env)")
         );
         return EXIT_USAGE;
     }
-    cards: list[dict[str, any]] = [];
-    set_agent(AgentCtx(repo=repo, session="cli-offline", thread="cli-offline", user=current_user()), cards);
-    tap(
-        lambda (evt: dict[str, any]) { if evt.get("kind") == "ui" {
-            d = evt.get("data") or {};
-            if d.get("action") != "card" {
-                print(
-                    dim(
-                        "    ui ← "
-                            + str(d.get("action"))
-                            + " "
-                            + short_args(d.get("args"))
-                    )
-                );
-            }
-        }}
+    cards: list[Card] = [];
+    set_agent(
+        AgentCtx(repo=repo, session="cli-offline", thread="cli-offline", user=current_user()), cards
     );
-    history: list[dict[str, any]] = [];
-    stream: any = copilot(question, "terminal (diffwalker cli), no screen", history);
+    tap(
+        lambda (evt: LiveEvent) {
+            if evt.kind == "ui" {
+                print(dim("    ui ← " + evt.data.action + " " + short_args(evt.data.args)));
+            }
+        },
+    );
+    history: list[Message] = [];
     answering = False;
-    for ev in stream {
-        if not isinstance(ev, StreamEvent) {
-            continue;
-        }
-        k = ev.event_type;
-        d = ev.data;
-        if k == "tool_call" {
-            print(
-                violet("  → " + str(d.get("tool")))
-                    + dim("(" + short_args(d.get("args")) + ")")
-            );
-        } elif k == "chunk" {
+    usage = ByUsage();
+    for ev in copilot(question, "terminal (diffwalker cli), no screen", history) {
+        if ev.kind == ByEventKind.TOOL_CALL {
+            print(violet("  → " + ev.tool) + dim("(" + json.dumps(ev.args)[:110] + ")"));
+        } elif ev.kind == ByEventKind.TEXT {
             if not answering {
                 print("");
                 answering = True;
             }
-            sys.stdout.write(str(d.get("content", "")));
+            sys.stdout.write(ev.text);
             sys.stdout.flush();
-        } elif k == "usage" {
-            total = d.get("total", {}) or {};
-            print(
-                "\n"
-                    + dim(
-                        f"\n{d.get('requests', 0)} model calls · {total.get(
-                            'total_tokens', 0
-                        )} tokens · ${round(total.get('cost', 0.0), 4)}"
-                    )
-            );
+        } elif ev.kind == ByEventKind.USAGE {
+            used = ev.usage;
+            if used is not None {
+                usage.add(used);
+            }
         }
+    }
+    if usage.requests {
+        print(
+            "\n"
+                + dim(
+                    f"\n{usage.requests} model calls · {tokens_of(usage)} tokens · ${round(cost_of(usage), 4)}",
+                ),
+        );
     }
     for card in cards {
         print(
             dim("  card: ")
-                + bold(card.get("title", ""))
-                + dim(
-                    " ("
-                        + card.get("kind", "")
-                        + ") · open the web board to see it rendered"
-                )
+                + bold(card.title)
+                + dim(" (" + card.kind + ") · open the web board to see it rendered"),
         );
     }
     return EXIT_OK;
 }
 
 def run_ask_live(server: str, question: str) -> int {
+    use_server(server);
     session = "cli-" + str(random.randint(100000, 999999));
-    answering: list[bool] = [False];
-    def on_frame(f: dict[str, any]) -> bool {
-        t = f.get("t");
-        if t == "tool_call" {
-            print(
-                violet("  → " + str(f.get("tool")))
-                    + dim("(" + short_args(f.get("args")) + ")")
-            );
-        } elif t == "card" {
-            print(dim("  card: ") + bold(str((f.get("card") or {}).get("title", ""))));
-        } elif t == "chunk" {
-            if not answering[0] {
-                print("");
-                answering[0] = True;
-            }
-            sys.stdout.write(str(f.get("text", "")));
-            sys.stdout.flush();
-        } elif t == "usage" {
-            print(
-                "\n"
-                    + dim(
-                        f"\n{f.get('requests', 0)} model calls · {f.get(
-                            'tokens', 0
-                        )} tokens"
-                    )
-            );
-        } elif t == "done" {
-            return False;
-        }
-        return True;
-    }
+    thread = "cli-" + str(random.randint(100000, 999999));
+    answering = False;
+    usage: CopilotFrame | None = None;
     print(
         dim(
             "asking Copilot on "
                 + server
-                + " · browsers with diffwalker open will follow its UI actions"
-        )
+                + " · browsers with diffwalker open will follow its UI actions",
+        ),
     );
     try {
-        post_sse(
-            server,
-            "copilot_stream",
-            {
-                "thread_id": "cli-" + str(random.randint(100000, 999999)),
-                "message": question,
-                "ui_state": "terminal; the user is watching the web app",
-                "session": session
-            },
-            on_frame
-        );
-    } except Exception as e {
+        for f in copilot_stream(
+            thread, question, "terminal; the user is watching the web app", session
+        ) {
+            card = f.card;
+            if f.t == "tool_call" {
+                print(violet("  → " + f.tool) + dim("(" + f.args[:110] + ")"));
+            } elif f.t == "card" and card is not None {
+                print(dim("  card: ") + bold(card.title));
+            } elif f.t == "chunk" {
+                if not answering {
+                    print("");
+                    answering = True;
+                }
+                sys.stdout.write(f.text);
+                sys.stdout.flush();
+            } elif f.t == "usage" {
+                usage = f;
+            } elif f.t == "done" {
+                break;
+            }
+        }
+    } except RemoteError as e {
         return unreachable(server, e);
+    }
+    if usage is not None {
+        print("\n" + dim(f"\n{usage.requests} model calls · {usage.tokens} tokens"));
     }
     return EXIT_OK;
 }

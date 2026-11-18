@@ -1,158 +1,23 @@
+"""Every endpoint diffwalker serves.
+
+All of them are `def:protect`: a signed-in caller runs on their own root, so reviews,
+findings, chat threads, and the active repository are per user with no user-id
+checks in the code. `server_info` is the only `def:pub` one; the sign-in screen
+uses it before anyone is signed in. What they return is declared in `core.wire`,
+which the front ends compile in too.
+"""
 import os;
 import json;
 import time;
 import logging;
 import threading;
 import subprocess;
-import from typing { Generator }
-import from jaclang.byllm.lib { StreamEvent }
-
-"""Every endpoint diffwalker serves.
-
-All of them are `def:protect`: a signed-in caller runs on their own root, so reviews,
-findings, chat threads, and the active repository are per user with no user-id
-checks in the code. `server_info` is the only `def:pub` one; the sign-in screen
-uses it before anyone is signed in.
-"""
-obj ServerInfo {
-    has llm: bool = False,
-        model: str = "",
-        gh: bool = False;
-}
-
-obj WorkspaceView {
-    has repo: RepoInfo = RepoInfo(),
-        recent: list[str] = [],
-        llm: bool = False,
-        model: str = "",
-        gh: bool = False,
-        seq: int = 0,
-        error: str = "";
-}
-
-obj PRRow {
-    has pr: PullRequestRef = PullRequestRef(),
-        verdict: str = "",
-        risk: int = -1,
-        open_findings: int = 0,
-        last_review: str = "",
-        reviewing: bool = False;
-}
-
-obj ReviewBrief {
-    has id: str = "",
-        status: str = "",
-        verdict: str = "",
-        risk: int = 0,
-        started: float = 0.0,
-        finished: float = 0.0,
-        findings: int = 0,
-        cost: float = 0.0,
-        trigger: str = "";
-}
-
-obj FileNote {
-    has path: str = "",
-        summary: str = "",
-        risk: int = 0,
-        lenses: list[str] = [],
-        status: str = "queued",
-        findings: int = 0,
-        additions: int = 0,
-        deletions: int = 0,
-        related: list[str] = [],
-        read: list[str] = [];
-}
-
-obj ReviewView {
-    has id: str = "",
-        pr_id: str = "",
-        status: str = "",
-        verdict: str = "",
-        risk: int = 0,
-        triage_risk: int = 0,
-        summary: str = "",
-        intent: str = "",
-        focus: str = "",
-        highlights: list[str] = [],
-        concerns: list[str] = [],
-        tests: list[str] = [],
-        walkthrough: list[FileNote] = [],
-        stages: list[StageState] = [],
-        feed: list[FeedItem] = [],
-        costs: list[StageCost] = [],
-        started: float = 0.0,
-        finished: float = 0.0,
-        model: str = "",
-        ref: str = "",
-        llm_calls: int = 0,
-        tokens: int = 0,
-        cost: float = 0.0,
-        dropped: int = 0,
-        error: str = "",
-        trigger: str = "";
-}
-
-obj PRDetail {
-    has pr: PullRequestRef = PullRequestRef(),
-        files: list[FileDiff] = [],
-        risks: list[FileRisk] = [],
-        commits: list[CommitInfo] = [],
-        review: ReviewView | None = None,
-        findings: list[Finding] = [],
-        history: list[ReviewBrief] = [],
-        found: bool = False;
-}
-
-obj DashboardView {
-    has repo: RepoInfo = RepoInfo(),
-        stats: RepoStats = RepoStats(),
-        activity: list[DayCount] = [],
-        languages: list[LangSlice] = [],
-        hotspots: list[Hotspot] = [],
-        prs: list[PRRow] = [],
-        findings: list[Finding] = [],
-        insights: int = 0,
-        spend: float = 0.0,
-        reviews: int = 0;
-}
-
-obj ActivityView {
-    has days: list[DayCount] = [],
-        weeks: list[WeekBucket] = [],
-        kinds: list[KindMonth] = [],
-        stats: RepoStats = RepoStats();
-}
-
-obj PeopleView {
-    has contributors: list[Contributor] = [],
-        ownership: list[Ownership] = [];
-}
-
-obj StructureView {
-    has cells: list[TreeCell] = [],
-        languages: list[LangSlice] = [];
-}
-
-obj ChatReply {
-    has text: str = "",
-        tools: list[ToolTrace] = [],
-        cards: list[dict[str, any]] = [],
-        actions: list[dict[str, any]] = [],
-        tokens: int = 0,
-        cost: float = 0.0;
-}
-
-obj CodeSnippet {
-    has path: str = "",
-        start: int = 0,
-        lines: list[str] = [],
-        total: int = 0;
-}
+import from stdjac.by { ByEvent, ByEventKind, ByUsage }
+import from stdjac.graph { commit }
 
 glob _env_loaded: int = load_env(),
      _warmed: set[str] = set(),
-     _warm_lock: any = threading.Lock(),
+     _warm_lock: threading.Lock = threading.Lock(),
      SNIPPET_FILES: list[str] = ["jac.toml", "README.md", "archwire.jac"];
 
 def _default_repo -> str {
@@ -172,7 +37,7 @@ def active_repo -> str {
         _warmed.add(repo);
     }
     if fresh {
-        threading.Thread(target=lambda { warm(repo); }, daemon=True).start();
+        threading.Thread(target=warm, args=(repo,), daemon=True).start();
     }
     return repo;
 }
@@ -204,14 +69,14 @@ def _brief(rv: Review) -> ReviewBrief {
         finished=rv.finished,
         findings=len(review_findings(rv)),
         cost=rv.cost,
-        trigger=rv.trigger
+        trigger=rv.trigger,
     );
 }
 
 def _view(rv: Review) -> ReviewView {
     notes: list[FileNote] = [];
     for fc in review_files(rv) {
-        refs = [fc-->][?:CodeRef];
+        refs = [fc --> [?:CodeRef]];
         notes.append(
             FileNote(
                 path=fc.path,
@@ -223,8 +88,8 @@ def _view(rv: Review) -> ReviewView {
                 additions=fc.additions,
                 deletions=fc.deletions,
                 related=[c.path for c in refs],
-                read=[c.path for c in refs if c.inspected]
-            )
+                read=[c.path for c in refs if c.inspected],
+            ),
         );
     }
     return ReviewView(
@@ -253,7 +118,7 @@ def _view(rv: Review) -> ReviewView {
         cost=rv.cost,
         dropped=rv.dropped,
         error=rv.error,
-        trigger=rv.trigger
+        trigger=rv.trigger,
     );
 }
 
@@ -286,7 +151,7 @@ def:protect get_workspace -> WorkspaceView {
         llm=llm_ready(),
         model=model_label(),
         gh=gh_available(),
-        seq=latest_seq()
+        seq=latest_seq(),
     );
 }
 
@@ -318,7 +183,7 @@ def:protect dashboard -> DashboardView {
     if r {
         recent = repo_findings(r);
         pins = len(repo_insights(r));
-        for rv in [r->:HasPR:->->:HasReview:->][?:Review] {
+        for rv in [r ->:HasPR:-> ->:HasReview:->][?:Review] {
             spend += rv.cost;
             count += 1;
         }
@@ -334,7 +199,7 @@ def:protect dashboard -> DashboardView {
         findings=recent,
         insights=pins,
         spend=round(spend, 4),
-        reviews=count
+        reviews=count,
     );
 }
 
@@ -351,7 +216,7 @@ def:protect pr_detail(pr_id: str, review_id: str) -> PRDetail {
         files=files,
         risks=triage(files, [h.path for h in hotspots(repo, 60)]),
         commits=pr_commits(repo, pr),
-        found=True
+        found=True,
     );
     r = repo_node(repo);
     n = pr_node(r, pr.id) if r else None;
@@ -389,8 +254,13 @@ def:protect start_review(pr_id: str, focus: str, session: str) -> ReviewBrief {
     if pr_running(pr.id) {
         return ReviewBrief(status="busy");
     }
-    changed("reviewing", {"pr_id": pr.id});
-    rid = run_review(repo, pr, focus, "mobile" if session.startswith("m-") else ("cli" if session.startswith("cli") else "user"));
+    changed("reviewing", pr_id=pr.id);
+    rid = run_review(
+        repo,
+        pr,
+        focus,
+        "mobile" if session.startswith("m-") else ("cli" if session.startswith("cli") else "user"),
+    );
     rv = find_review(rid);
     return _brief(rv) if rv else ReviewBrief(id=rid, status="failed");
 }
@@ -411,7 +281,7 @@ def:protect add_comment(
     category: str,
     title: str,
     body: str,
-    suggestion: str
+    suggestion: str,
 ) -> Finding | None {
     repo = active_repo();
     pr = find_pr(repo, pr_id);
@@ -430,19 +300,30 @@ def:protect export_markdown(pr_id: str) -> str {
 
 def _post_to_github(slug: str, number: int, body: str, pr_id: str, user: str) {
     try {
-        p = subprocess.run(["gh", "pr", "comment", str(number), "--repo", slug, "--body-file", "-"], input=body, capture_output=True, text=True, timeout=60);
+        p = subprocess.run(
+            ["gh", "pr", "comment", str(number), "--repo", slug, "--body-file", "-"],
+            input=body,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        );
         if p.returncode == 0 {
-            emit("data", {"what": "published", "pr_id": pr_id, "url": p.stdout.strip()}, user=user);
-            emit("ui", {"action": "toast", "args": {"message": "Published to GitHub: " + p.stdout.strip(), "tone": "success"}}, user=user);
+            emit("data", LiveData(what="published", pr_id=pr_id, url=p.stdout.strip()), user=user);
+            _toast("Published to GitHub: " + p.stdout.strip(), "success", user);
         } else {
-            emit("ui", {"action": "toast", "args": {"message": "gh failed: " + p.stderr.strip()[:200], "tone": "warning"}}, user=user);
+            _toast("gh failed: " + p.stderr.strip()[:200], "warning", user);
         }
     } except Exception as e {
-        emit("ui", {"action": "toast", "args": {"message": "gh failed: " + str(e)[:200], "tone": "warning"}}, user=user);
+        _toast("gh failed: " + str(e)[:200], "warning", user);
     }
 }
 
-"""Post the latest review to the GitHub PR, once: the gh call is deferred to `on_commit`, so a replayed request never posts twice."""
+def _toast(message: str, tone: str, user: str) {
+    emit("ui", LiveData(action="toast", args=UiArgs(message=message, tone=tone)), user=user);
+}
+
+"""Post the latest review to the GitHub PR. The gh call runs after this returns, and a
+toast tells the user how it went."""
 def:protect publish_review(pr_id: str) -> str {
     repo = active_repo();
     pr = find_pr(repo, pr_id);
@@ -454,15 +335,24 @@ def:protect publish_review(pr_id: str) -> str {
         return "Run a review first.";
     }
     slug = repo_info(repo).github;
-    number = pr.number;
-    user = current_user();
-    on_commit(lambda { threading.Thread(target=lambda { _post_to_github(slug, number, body, pr_id, user); }, daemon=True).start(); });
-    return "Publishing to " + slug + "#" + str(number) + "; a toast confirms when GitHub accepts it.";
+    threading.Thread(
+        target=_post_to_github, args=(slug, pr.number, body, pr_id, current_user()), daemon=True
+    ).start();
+    return "Publishing to "
+        + slug
+        + "#"
+        + str(pr.number)
+        + "; a toast confirms when GitHub accepts it.";
 }
 
 def:protect activity_view -> ActivityView {
     repo = active_repo();
-    return ActivityView(days=activity(repo, 371), weeks=weekly(repo, 26), kinds=kinds_by_month(repo, 9), stats=stats(repo));
+    return ActivityView(
+        days=activity(repo, 371),
+        weeks=weekly(repo, 26),
+        kinds=kinds_by_month(repo, 9),
+        stats=stats(repo),
+    );
 }
 
 def:protect hotspots_view(limit: int) -> list[Hotspot] {
@@ -496,10 +386,10 @@ def:protect unpin_card(insight_id: str) -> bool {
     return unpin_insight(active_repo(), insight_id);
 }
 
-def:protect chat_history(thread_id: str) -> ChatThread {
+def:protect chat_history(thread_id: str) -> list[ChatMsg] {
     t = chat_thread(thread_id);
     commit();
-    return t;
+    return t.transcript;
 }
 
 def:protect clear_chat(thread_id: str) -> bool {
@@ -515,67 +405,48 @@ def:protect stop_turn(thread_id: str) -> bool {
     return True;
 }
 
-def _plain(o: object) -> object {
-    dump = getattr(o, "model_dump", None);
-    if dump is not None {
-        return dump();
+"""One event of the Copilot's stream as a frame for the Copilot pane, noted in `reply`.
+`spent` is what the turn's requests have used so far."""
+def _frame(ev: ByEvent, reply: ChatReply, spent: ByUsage) -> CopilotFrame | None {
+    if ev.kind == ByEventKind.TEXT {
+        reply.text = reply.text + ev.text;
+        return CopilotFrame(t="chunk", text=ev.text);
     }
-    return o?.__dict__ or str(o);
-}
-
-"""byLLM's conversation list can hold provider objects (litellm tool-call records);
-persist only JSON, or the stored node cannot be read back (jaseci-labs/jac#10234)."""
-def _json_only(history: list[dict[str, any]]) -> list[dict[str, any]] {
-    return json.loads(json.dumps(history, `default=_plain));
-}
-
-"""Translate one byLLM StreamEvent into a frame for the Copilot pane."""
-def _frame(ev: StreamEvent, reply: ChatReply) -> dict[str, any] | None {
-    k = ev.event_type;
-    d = ev.data;
-    if k == "chunk" {
-        piece = str(d.get("content", ""));
-        reply.text = reply.text + piece;
-        return {"t": "chunk", "text": piece};
+    if ev.kind == ByEventKind.TOOL_CALL {
+        args = json.dumps(ev.args);
+        reply.tools = reply.tools + [ToolTrace(tool=ev.tool, args=args[:400])];
+        return CopilotFrame(t="tool_call", tool=ev.tool, args=args, id=ev.call_id);
     }
-    if k == "thought" {
-        return {"t": "thought", "text": str(d.get("content", ""))};
-    }
-    if k == "tool_call" {
-        args = json.loads(json.dumps(d.get("args", {}), `default=_plain));
-        reply.tools = reply.tools + [ToolTrace(tool=str(d.get("tool", "")), args=json.dumps(args)[:400])];
-        return {"t": "tool_call", "tool": d.get("tool", ""), "args": args, "id": d.get("call_id", "")};
-    }
-    if k == "tool_result" {
-        res = str(d.get("result", ""));
+    if ev.kind == ByEventKind.TOOL_RESULT {
         for tr in reversed(reply.tools) {
-            if tr.tool == d.get("tool", "") and not tr.result {
-                tr.result = res[:400];
+            if tr.tool == ev.tool and not tr.result {
+                tr.result = ev.result[:400];
                 break;
             }
         }
-        return {"t": "tool_result", "tool": d.get("tool", ""), "result": res[:600], "id": d.get("call_id", "")};
+        return CopilotFrame(t="tool_result", tool=ev.tool, result=ev.result[:600], id=ev.call_id);
     }
-    if k == "compaction" {
-        return {"t": "thought", "text": f"Compacted older context ({d.get('tokens_before', 0)} → {d.get('tokens_after', 0)} tokens)"};
-    }
-    if k == "steps_done" and d.get("reason") in ("aborted", "aborted_with_summary") {
-        return {"t": "thought", "text": "Stopped: wrapping up with what I have."};
-    }
-    if k == "usage" {
-        total = d.get("total", {}) or {};
-        reply.tokens = int(total.get("total_tokens", 0) or 0);
-        reply.cost = float(total.get("cost", 0.0) or 0.0);
-        return {"t": "usage", "tokens": reply.tokens, "cost": reply.cost, "requests": d.get("requests", 0)};
+    usage = ev.usage;
+    if ev.kind == ByEventKind.USAGE and usage is not None {
+        spent.add(usage);
+        reply.tokens = tokens_of(spent);
+        reply.cost = cost_of(spent);
+        return CopilotFrame(
+            t="usage", tokens=reply.tokens, cost=reply.cost, requests=spent.requests
+        );
     }
     return None;
 }
 
-"""One Copilot turn as a generator of frames. Context is re-bound at every step,
-because each step of a streamed generator runs in a fresh copy of the request context."""
-def _turn(thread_id: str, message: str, ui_state: str, session: str, reply: ChatReply) -> Generator[dict[str, any], None, None] {
+"""One Copilot turn as the frames it makes, kept in the caller's chat thread when it ends,
+and when its reader leaves before it does (the stream is closed where it paused).
+A stream runs on one thread from start to end, so the session and the agent's context
+set here hold for every tool the turn calls."""
+def _turn(
+    thread_id: str, message: str, ui_state: str, session: str, reply: ChatReply
+) -> Iterator[CopilotFrame] {
+    set_session(session);
     repo = active_repo();
-    user = current_user();
     t = chat_thread(thread_id);
     t.transcript = t.transcript + [ChatMsg(role="user", text=message, ts=now())];
     if not t.title {
@@ -583,97 +454,97 @@ def _turn(thread_id: str, message: str, ui_state: str, session: str, reply: Chat
     }
     t.updated = now();
     commit();
-    history: list[dict[str, any]] = list(t.history or []);
-    cards: list[dict[str, any]] = [];
-    ctx = AgentCtx(repo=repo, session=session, thread=thread_id, user=user);
+    history = trim_history(t.history);
+    cards: list[Card] = [];
+    set_agent(AgentCtx(repo=repo, session=session, thread=thread_id, user=current_user()), cards);
     clear_stop(thread_id);
-    if not llm_ready() {
-        msg = "Copilot needs credentials for " + model_name() + " in the server environment (or the project's `.env`).";
-        reply.text = msg;
-        yield {"t": "chunk", "text": msg};
-    } else {
-        sent = 0;
-        try {
-            set_agent(ctx, cards);
-            set_session(session);
-            stream: any = iter(copilot(message, ui_state, history));
-            while True {
-                set_agent(ctx, cards);
-                set_session(session);
-                try {
-                    ev = next(stream);
-                } except StopIteration {
-                    break;
-                }
-                if isinstance(ev, StreamEvent) {
-                    frame = _frame(ev, reply);
-                    if frame {
+    try {
+        if not llm_ready() {
+            reply.text = "Copilot needs credentials for "
+                + model_name()
+                + " in the server environment (or the project's `.env`).";
+            yield CopilotFrame(t="chunk", text=reply.text);
+        } else {
+            sent = 0;
+            spent = ByUsage();
+            try {
+                for ev in copilot(message, ui_state, history) {
+                    frame = _frame(ev, reply, spent);
+                    if frame is not None {
                         yield frame;
                     }
+                    while sent < len(cards) {
+                        yield CopilotFrame(t="card", card=cards[sent]);
+                        sent += 1;
+                    }
                 }
-                while sent < len(cards) {
-                    yield {"t": "card", "card": cards[sent]};
-                    sent += 1;
-                }
+            } except Exception as e {
+                logging.getLogger("diffwalker.copilot").exception("copilot turn failed");
+                failure = "\n\n_Copilot hit an error: " + str(e)[:300] + "_";
+                reply.text = reply.text + failure;
+                yield CopilotFrame(t="chunk", text=failure);
             }
-        } except Exception as e {
-            logging.getLogger("diffwalker.copilot").exception("copilot turn failed");
-            msg = "\n\n_Copilot hit an error: " + str(e)[:300] + "_";
-            reply.text = reply.text + msg;
-            yield {"t": "chunk", "text": msg};
         }
+    } finally {
+        # Kept however the turn ends: its pane may have closed in the middle of the answer.
+        reply.cards = cards;
+        t.transcript = t.transcript + [
+            ChatMsg(
+                role="assistant",
+                text=reply.text,
+                ts=now(),
+                tools=reply.tools,
+                cards=cards,
+                tokens=reply.tokens,
+                cost=reply.cost,
+            ),
+        ];
+        t.history = history;
+        t.updated = now();
+        commit();
+        clear_stop(thread_id);
     }
-    reply.cards = cards;
-    t = chat_thread(thread_id);
-    t.transcript = t.transcript + [ChatMsg(role="assistant", text=reply.text, ts=now(), tools=reply.tools, cards=[json.dumps(c) for c in cards], tokens=reply.tokens, cost=reply.cost)];
-    t.history = _json_only(history);
-    t.updated = now();
-    commit();
-    clear_stop(thread_id);
-    yield {"t": "done"};
+    yield CopilotFrame(t="done");
 }
 
-def:protect copilot_stream(thread_id: str, message: str, ui_state: str, session: str) {
-    reply = ChatReply();
-    report _turn(thread_id, message, ui_state, session, reply);
+"""A Copilot turn, each frame sent as it is made."""
+def:protect copilot_stream(
+    thread_id: str, message: str, ui_state: str, session: str
+) -> Iterator[CopilotFrame] {
+    return _turn(thread_id, message, ui_state, session, ChatReply());
 }
 
-"""The same turn without streaming, for clients that cannot read SSE (the phone)."""
+"""The same turn without streaming, for clients that take one reply (the phone)."""
 def:protect copilot_ask(thread_id: str, message: str, ui_state: str, session: str) -> ChatReply {
     reply = ChatReply();
     user = current_user();
     start = latest_seq();
-    for _ in _turn(thread_id, message, ui_state, session, reply) {
-        set_session(session);
-    }
+    for _ in _turn(thread_id, message, ui_state, session, reply) {}
     for e in events_after(user, start) {
-        if e["session"] == session and e["kind"] == "ui" and e["data"]["action"] != "card" {
-            reply.actions = reply.actions + [e["data"]];
+        if e.session == session and e.kind == "ui" {
+            reply.actions = reply.actions + [UiCommand(action=e.data.action, args=e.data.args)];
         }
     }
     return reply;
 }
 
 """The caller's event stream: review progress, data changes, and UI commands from their other screens."""
-def:protect live(after: int) {
+def:protect live(after: int) -> Iterator[LiveEvent] {
     user = current_user();
-    def stream -> Generator[dict[str, any], None, None] {
-        cursor = after if after > 0 else latest_seq();
-        yield {"kind": "hello", "seq": cursor};
-        deadline = time.time() + 600;
-        while time.time() < deadline {
-            batch = wait_events(user, cursor, 8.0);
-            if not batch {
-                yield {"kind": "ping", "seq": cursor};
-                continue;
-            }
-            for e in batch {
-                cursor = e["seq"];
-                yield e;
-            }
+    cursor = after if after > 0 else latest_seq();
+    yield LiveEvent(kind="hello", seq=cursor);
+    deadline = time.time() + 600;
+    while time.time() < deadline {
+        batch = wait_events(user, cursor, 8.0);
+        if not batch {
+            yield LiveEvent(kind="ping", seq=cursor);
+            continue;
+        }
+        for e in batch {
+            cursor = e.seq;
+            yield e;
         }
     }
-    report stream();
 }
 
 """Source shown on the "How it's built" page: Jac files of this project and a few named
@@ -706,28 +577,15 @@ def:protect source_snippet(path: str, needle: str, before: int, after: int) -> C
     return CodeSnippet(path=path, start=a + 1, lines=lines[a:b], total=len(lines));
 }
 
-obj AppSize {
-    has app: str = "",
-        files: int = 0,
-        lines: int = 0;
-}
-
-obj BuildStats {
-    has apps: list[AppSize] = [],
-        jac_files: int = 0,
-        jac_lines: int = 0,
-        endpoints: int = 0,
-        tools: int = 0,
-        llm_functions: int = 0,
-        nodes: int = 0,
-        walkers: int = 0;
-}
-
 def:protect build_stats -> BuildStats {
     out = BuildStats(tools=len(TOOLS));
     sizes: dict[str, AppSize] = {};
     for (dirpath, dirnames, filenames) in os.walk(PROJECT_DIR) {
-        dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in ("node_modules", "dist", "_probe")];
+        dirnames[:] = [
+            d
+            for d in dirnames
+            if not d.startswith(".") and d not in ("node_modules", "dist", "_probe")
+        ];
         for name in filenames {
             if not name.endswith(".jac") {
                 continue;
@@ -759,7 +617,7 @@ def:protect build_stats -> BuildStats {
                 s = l.strip();
                 if s.startswith("node ") {
                     out.nodes += 1;
-                } elif s.startswith("walker ") {
+                } elif (s.startswith("walker ") or s.startswith("walker:")) and s.endswith("{") {
                     out.walkers += 1;
                 }
             }

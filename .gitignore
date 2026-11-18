@@ -4,4 +4,6 @@ node_modules/
 server.log
 dist/
 *.log
-.jac-status.json
+eco/*/package.json
+eco/*/package-lock.json
+eco/*/node_modules/

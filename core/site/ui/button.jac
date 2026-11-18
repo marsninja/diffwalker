@@ -11,7 +11,7 @@ glob _buttonVariants: any = cva(
                      "secondary": "bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground bg-secondary text-secondary-foreground hover:bg-secondary/80 aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
                      "ghost": "hover:bg-muted hover:text-foreground dark:hover:bg-muted/50 aria-expanded:bg-muted aria-expanded:text-foreground hover:bg-muted hover:text-foreground dark:hover:bg-muted/50 aria-expanded:bg-muted aria-expanded:text-foreground",
                      "destructive": "bg-destructive/10 hover:bg-destructive/20 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/20 text-destructive focus-visible:border-destructive/40 dark:hover:bg-destructive/30 bg-destructive/10 hover:bg-destructive/20 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/20 text-destructive focus-visible:border-destructive/40 dark:hover:bg-destructive/30",
-                     "link": "text-primary underline-offset-4 hover:underline text-primary underline-offset-4 hover:underline"
+                     "link": "text-primary underline-offset-4 hover:underline text-primary underline-offset-4 hover:underline",
                  },
                  "size": {
                      "default": "h-8 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 h-8 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
@@ -21,60 +21,49 @@ glob _buttonVariants: any = cva(
                      "icon": "size-8 size-8",
                      "icon-xs": "size-6 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3 size-6 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",
                      "icon-sm": "size-7 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg size-7 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
-                     "icon-lg": "size-9 size-9"
-                 }
+                     "icon-lg": "size-9 size-9",
+                 },
              },
-             "defaultVariants": {"variant": "default", "size": "default"}
-         }
+             "defaultVariants": {"variant": "default", "size": "default"},
+         },
      ),
-     _buttonExcludeKeys: list[str] = [
-         "className",
-         "variant",
-         "size",
-         "asChild",
-         "children"
-     ];
+     _buttonExcludeKeys: list[str] = ["className", "variant", "size", "asChild", "children"];
 
-def:pub Button(props: any) -> JsxElement {
-    variant = props["variant"] or "default";
-    size = props["size"] or "default";
-    asChild = props["asChild"] or False;
+def:pub Button(**kwargs: any) -> JsxElement {
+    variant = kwargs.get("variant") or "default";
+    size = kwargs.get("size") or "default";
+    asChild = kwargs.get("asChild") or False;
 
-    restProps = {};
-    for key in Object.keys(props) {
+    restProps: dict[str, any] = {};
+    for key in kwargs.keys() {
         if key not in _buttonExcludeKeys {
-            restProps[key] = props[key];
+            restProps[key] = kwargs[key];
         }
     }
 
     computedClass = cn(
         _buttonVariants.call(
-            None, {"variant": variant, "size": size, "className": props["className"]}
-        )
+            None, {"variant": variant, "size": size, "className": kwargs.get("className")}
+        ),
     );
 
     if asChild {
-        return
-            <Slot.Root
-                data-slot="button"
-                data-variant={variant}
-                data-size={size}
-                className={computedClass}
-                {**restProps}
-            >
-                {props["children"]}
-            </Slot.Root>;
+        return <Slot.Root
+            data-slot="button"
+            data-variant={variant}
+            data-size={size}
+            className={computedClass}
+            {...restProps}
+        >{kwargs.get("children")}</Slot.Root>;
     }
 
-    <button
+    return <button
         data-slot="button"
         data-variant={variant}
         data-size={size}
         className={computedClass}
-        {**restProps}
-    >
-        {props["children"]}
-    </button>
+        {...restProps}
+    >{kwargs.get("children")}</button>;
 }
 
 def:pub buttonVariants -> any {

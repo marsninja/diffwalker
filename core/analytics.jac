@@ -2,104 +2,19 @@ import math;
 import time;
 import from datetime { date, timedelta }
 
+"""One file a commit touched, with the lines it added and deleted there."""
+obj FileTouch {
+    has path: str = "",
+        additions: int = 0,
+        deletions: int = 0;
+}
+
 obj CommitRec {
     has sha: str = "",
         author: str = "",
         ts: int = 0,
         subject: str = "",
-        files: list[list[any]] = [];
-}
-
-obj DayCount {
-    has day: str = "",
-        count: int = 0;
-}
-
-obj WeekBucket {
-    has week: str = "",
-        commits: int = 0,
-        additions: int = 0,
-        deletions: int = 0;
-}
-
-obj KindMonth {
-    has month: str = "",
-        counts: dict[str, int] = {};
-}
-
-obj Hotspot {
-    has path: str = "",
-        changes: int = 0,
-        churn: int = 0,
-        authors: int = 0,
-        size: int = 0,
-        language: str = "",
-        last_ts: int = 0,
-        score: float = 0.0;
-}
-
-obj Contributor {
-    has name: str = "",
-        commits: int = 0,
-        additions: int = 0,
-        deletions: int = 0,
-        files: int = 0,
-        first_ts: int = 0,
-        last_ts: int = 0,
-        top_area: str = "";
-}
-
-obj Ownership {
-    has area: str = "",
-        owner: str = "",
-        share: float = 0.0,
-        commits: int = 0,
-        authors: int = 0;
-}
-
-obj LangSlice {
-    has language: str = "",
-        bytes: int = 0,
-        files: int = 0;
-}
-
-obj TreeCell {
-    has path: str = "",
-        bytes: int = 0,
-        files: int = 0,
-        language: str = "",
-        churn: int = 0;
-}
-
-obj CouplingNode {
-    has id: str = "",
-        changes: int = 0,
-        area: str = "";
-}
-
-obj CouplingEdge {
-    has a: str = "",
-        b: str = "",
-        weight: int = 0,
-        strength: float = 0.0;
-}
-
-obj CouplingGraph {
-    has nodes: list[CouplingNode] = [],
-        edges: list[CouplingEdge] = [];
-}
-
-obj RepoStats {
-    has commits_90d: int = 0,
-        authors_90d: int = 0,
-        additions_90d: int = 0,
-        deletions_90d: int = 0,
-        busiest_day: str = "",
-        busiest_count: int = 0,
-        streak_days: int = 0,
-        median_commit_size: int = 0,
-        bus_factor: int = 0,
-        test_ratio: float = 0.0;
+        files: list[FileTouch] = [];
 }
 
 glob HISTORY_DEPTH: int = 1500,
@@ -123,9 +38,9 @@ def history(repo: str) -> list[CommitRec] {
                 f"-n{HISTORY_DEPTH}",
                 "--no-merges",
                 "--numstat",
-                "--format=@@%H%x09%an%x09%at%x09%s"
+                "--format=@@%H%x09%an%x09%at%x09%s",
             ],
-            120
+            120,
         );
         out: list[CommitRec] = [];
         cur: CommitRec | None = None;
@@ -139,7 +54,7 @@ def history(repo: str) -> list[CommitRec] {
                     sha=cols[0][:10],
                     author=cols[1],
                     ts=int(cols[2]) if cols[2].isdigit() else 0,
-                    subject=cols[3]
+                    subject=cols[3],
                 );
                 out.append(cur);
             } elif cur and line.strip() {
@@ -151,7 +66,7 @@ def history(repo: str) -> list[CommitRec] {
                     if " => " in path {
                         path = rename_target(path);
                     }
-                    cur.files.append([path, adds, dels]);
+                    cur.files.append(FileTouch(path=path, additions=adds, deletions=dels));
                 }
             }
         }
@@ -194,9 +109,7 @@ def sizes(repo: str) -> dict[str, int] {
 def activity(repo: str, days: int = 371) -> list[DayCount] {
     counts: dict[str, int] = {};
     cutoff = time.time() - days * 86400;
-    raw = git_out(
-        repo, ["log", "--no-merges", f"--since={days}.days", "--format=%at"], 60
-    );
+    raw = git_out(repo, ["log", "--no-merges", f"--since={days}.days", "--format=%at"], 60);
     for line in raw.split("\n") {
         if line.strip().isdigit() {
             ts = int(line.strip());
@@ -232,23 +145,14 @@ def weekly(repo: str, weeks: int = 26) -> list[WeekBucket] {
         if wk in buckets {
             b = buckets[wk];
             b.commits += 1;
-            b.additions += sum([int(f[1]) for f in c.files]);
-            b.deletions += sum([int(f[2]) for f in c.files]);
+            b.additions += sum([f.additions for f in c.files]);
+            b.deletions += sum([f.deletions for f in c.files]);
         }
     }
     return [buckets[w] for w in order];
 }
 
-glob KINDS: list[str] = [
-         "feat",
-         "fix",
-         "refactor",
-         "docs",
-         "test",
-         "chore",
-         "perf",
-         "other"
-     ];
+glob KINDS: list[str] = ["feat", "fix", "refactor", "docs", "test", "chore", "perf", "other"];
 
 def commit_kind(subject: str) -> str {
     s = subject.lower().strip();
@@ -304,10 +208,10 @@ def hotspots(repo: str, limit: int = 40) -> list[Hotspot] {
     hist = history(repo);
     sz = sizes(repo);
     acc: dict[str, Hotspot] = {};
-    authors: dict[str, set] = {};
+    authors: dict[str, set[str]] = {};
     for c in hist {
         for f in c.files {
-            path = str(f[0]);
+            path = f.path;
             if path not in sz or not _visible(path) {
                 continue;
             }
@@ -318,7 +222,7 @@ def hotspots(repo: str, limit: int = 40) -> list[Hotspot] {
                 authors[path] = set();
             }
             h.changes += 1;
-            h.churn += int(f[1]) + int(f[2]);
+            h.churn += f.additions + f.deletions;
             h.last_ts = max(h.last_ts, c.ts);
             authors[path].add(c.author);
         }
@@ -329,21 +233,17 @@ def hotspots(repo: str, limit: int = 40) -> list[Hotspot] {
         age_days = max(1.0, (now - h.last_ts) / 86400.0);
         recency = 1.0 / (1.0 + age_days / 60.0);
         h.score = round(
-            h.changes * math.log2(2 + h.size / 1024.0) * (0.6 + recency)
-                + h.authors * 0.5,
-            2
+            h.changes * math.log2(2 + h.size / 1024.0) * (0.6 + recency) + h.authors * 0.5, 2
         );
     }
-    ranked = sorted(
-        acc.values(), key=lambda (h: Hotspot) -> float { return 0 - h.score; }
-    );
+    ranked = sorted(acc.values(), key=lambda (h: Hotspot) -> float { return 0 - h.score; });
     return ranked[:limit];
 }
 
 def contributors(repo: str, limit: int = 20) -> list[Contributor] {
     hist = history(repo);
     acc: dict[str, Contributor] = {};
-    files: dict[str, set] = {};
+    files: dict[str, set[str]] = {};
     areas: dict[str, dict[str, int]] = {};
     for c in hist {
         p = acc.get(c.author);
@@ -357,10 +257,10 @@ def contributors(repo: str, limit: int = 20) -> list[Contributor] {
         p.first_ts = min(p.first_ts, c.ts);
         p.last_ts = max(p.last_ts, c.ts);
         for f in c.files {
-            p.additions += int(f[1]);
-            p.deletions += int(f[2]);
-            files[c.author].add(str(f[0]));
-            a = _area(str(f[0]));
+            p.additions += f.additions;
+            p.deletions += f.deletions;
+            files[c.author].add(f.path);
+            a = _area(f.path);
             areas[c.author][a] = areas[c.author].get(a, 0) + 1;
         }
     }
@@ -368,13 +268,11 @@ def contributors(repo: str, limit: int = 20) -> list[Contributor] {
         p.files = len(files[name]);
         if areas[name] {
             p.top_area = max(
-                areas[name].items(), key=lambda (kv: any) -> int { return kv[1]; }
+                areas[name].items(), key=lambda (kv: tuple[str, int]) -> int { return kv[1]; }
             )[0];
         }
     }
-    ranked = sorted(
-        acc.values(), key=lambda (c: Contributor) -> int { return 0 - c.commits; }
-    );
+    ranked = sorted(acc.values(), key=lambda (c: Contributor) -> int { return 0 - c.commits; });
     return ranked[:limit];
 }
 
@@ -382,10 +280,10 @@ def ownership(repo: str, limit: int = 16) -> list[Ownership] {
     hist = history(repo);
     table: dict[str, dict[str, int]] = {};
     for c in hist {
-        seen: set = set();
+        seen: set[str] = set();
         for f in c.files {
-            a = _area(str(f[0]));
-            if a in seen or not _visible(str(f[0])) {
+            a = _area(f.path);
+            if a in seen or not _visible(f.path) {
                 continue;
             }
             seen.add(a);
@@ -400,15 +298,11 @@ def ownership(repo: str, limit: int = 16) -> list[Ownership] {
     out: list[Ownership] = [];
     for (area, row) in table.items() {
         total = sum(row.values());
-        (owner, n) = max(row.items(), key=lambda (kv: any) -> int { return kv[1]; });
+        (owner, n) = max(row.items(), key=lambda (kv: tuple[str, int]) -> int { return kv[1]; });
         out.append(
             Ownership(
-                area=area,
-                owner=owner,
-                share=round(n / total, 3),
-                commits=total,
-                authors=len(row)
-            )
+                area=area, owner=owner, share=round(n / total, 3), commits=total, authors=len(row)
+            ),
         );
     }
     ranked = sorted(out, key=lambda (o: Ownership) -> int { return 0 - o.commits; });
@@ -427,20 +321,18 @@ def languages(repo: str) -> list[LangSlice] {
             s = LangSlice(language=lang);
             acc[lang] = s;
         }
-        s.bytes += b;
+        s.size += b;
         s.files += 1;
     }
-    return sorted(
-        acc.values(), key=lambda (s: LangSlice) -> int { return 0 - s.bytes; }
-    );
+    return sorted(acc.values(), key=lambda (s: LangSlice) -> int { return 0 - s.size; });
 }
 
 def structure(repo: str, depth: int = 2, limit: int = 60) -> list[TreeCell] {
     churn: dict[str, int] = {};
     for c in history(repo) {
         for f in c.files {
-            a = _area(str(f[0]), depth);
-            churn[a] = churn.get(a, 0) + int(f[1]) + int(f[2]);
+            a = _area(f.path, depth);
+            churn[a] = churn.get(a, 0) + f.additions + f.deletions;
         }
     }
     cells: dict[str, TreeCell] = {};
@@ -456,7 +348,7 @@ def structure(repo: str, depth: int = 2, limit: int = 60) -> list[TreeCell] {
             cells[a] = cell;
             langs[a] = {};
         }
-        cell.bytes += b;
+        cell.size += b;
         cell.files += 1;
         lg = language_of(path);
         langs[a][lg] = langs[a].get(lg, 0) + b;
@@ -465,13 +357,11 @@ def structure(repo: str, depth: int = 2, limit: int = 60) -> list[TreeCell] {
         cell.churn = churn.get(a, 0);
         if langs[a] {
             cell.language = max(
-                langs[a].items(), key=lambda (kv: any) -> int { return kv[1]; }
+                langs[a].items(), key=lambda (kv: tuple[str, int]) -> int { return kv[1]; }
             )[0];
         }
     }
-    ranked = sorted(
-        cells.values(), key=lambda (c: TreeCell) -> int { return 0 - c.bytes; }
-    );
+    ranked = sorted(cells.values(), key=lambda (c: TreeCell) -> int { return 0 - c.size; });
     return ranked[:limit];
 }
 
@@ -484,7 +374,7 @@ def coupling(repo: str, max_nodes: int = 28, min_weight: int = 3) -> CouplingGra
             continue;
         }
         for f in c.files {
-            p = str(f[0]);
+            p = f.path;
             if p in sz and _visible(p) {
                 changes[p] = changes.get(p, 0) + 1;
             }
@@ -493,7 +383,7 @@ def coupling(repo: str, max_nodes: int = 28, min_weight: int = 3) -> CouplingGra
     top = [
         kv[0]
         for kv in sorted(
-            changes.items(), key=lambda (kv: any) -> int { return 0 - kv[1]; }
+            changes.items(), key=lambda (kv: tuple[str, int]) -> int { return 0 - kv[1]; }
         )[:120]
     ];
     keep = set(top);
@@ -502,15 +392,7 @@ def coupling(repo: str, max_nodes: int = 28, min_weight: int = 3) -> CouplingGra
         if len(c.files) > 24 {
             continue;
         }
-        touched = sorted(
-            set(
-                [
-                    str(f[0])
-                    for f in c.files
-                    if str(f[0]) in keep
-                ]
-            )
-        );
+        touched = sorted(set([f.path for f in c.files if f.path in keep]));
         for i in range(len(touched)) {
             for j in range(i + 1, len(touched)) {
                 key = touched[i] + "|" + touched[j];
@@ -528,18 +410,12 @@ def coupling(repo: str, max_nodes: int = 28, min_weight: int = 3) -> CouplingGra
         edges.append(CouplingEdge(a=a, b=b, weight=w, strength=round(strength, 3)));
     }
     edges = sorted(
-        edges,
-        key=lambda (e: CouplingEdge) -> float { return 0
-            - e.weight * (0.5 + e.strength); }
+        edges, key=lambda (e: CouplingEdge) -> float { return 0 - e.weight * (0.5 + e.strength); }
     );
     chosen: list[str] = [];
     picked: list[CouplingEdge] = [];
     for e in edges {
-        fresh = [
-            n
-            for n in [e.a, e.b]
-            if n not in chosen
-        ];
+        fresh = [n for n in [e.a, e.b] if n not in chosen];
         if len(chosen) + len(fresh) > max_nodes {
             continue;
         }
@@ -550,26 +426,20 @@ def coupling(repo: str, max_nodes: int = 28, min_weight: int = 3) -> CouplingGra
         }
     }
     return CouplingGraph(
-        nodes=[
-            CouplingNode(id=n, changes=changes[n], area=_area(n, 2)) for n in chosen
-        ],
-        edges=picked
+        nodes=[CouplingNode(id=n, changes=changes[n], area=_area(n, 2)) for n in chosen],
+        edges=picked,
     );
 }
 
 def stats(repo: str) -> RepoStats {
     hist = history(repo);
     cutoff = time.time() - 90 * 86400;
-    recent = [
-        c
-        for c in hist
-        if c.ts >= cutoff
-    ];
+    recent = [c for c in hist if c.ts >= cutoff];
     out = RepoStats(
         commits_90d=len(recent),
         authors_90d=len(set([c.author for c in recent])),
-        additions_90d=sum([int(f[1]) for c in recent for f in c.files]),
-        deletions_90d=sum([int(f[2]) for c in recent for f in c.files])
+        additions_90d=sum([f.additions for c in recent for f in c.files]),
+        deletions_90d=sum([f.deletions for c in recent for f in c.files]),
     );
     days = activity(repo, 90);
     best = DayCount();
@@ -589,7 +459,7 @@ def stats(repo: str) -> RepoStats {
         }
     }
     out.streak_days = streak;
-    sizes_list = sorted([sum([int(f[1]) + int(f[2]) for f in c.files]) for c in hist]);
+    sizes_list = sorted([sum([f.additions + f.deletions for f in c.files]) for c in hist]);
     out.median_commit_size = sizes_list[len(sizes_list) // 2] if sizes_list else 0;
     people = contributors(repo, 200);
     total = sum([p.commits for p in people]);
@@ -604,19 +474,13 @@ def stats(repo: str) -> RepoStats {
     }
     out.bus_factor = bus;
     paths = list(sizes(repo).keys());
-    tests = len(
-        [
-            p
-            for p in paths
-            if "test" in p.lower()
-        ]
-    );
+    tests = len([p for p in paths if "test" in p.lower()]);
     out.test_ratio = round(tests / max(1, len(paths)), 3);
     return out;
 }
 
 def warm(repo: str) {
-    _ = history(repo);
-    _ = sizes(repo);
-    _ = repo_info(repo);
+    history(repo);
+    sizes(repo);
+    repo_info(repo);
 }

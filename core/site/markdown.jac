@@ -1,3 +1,5 @@
+import from "@jac/runtime" { unsafe_html }
+
 glob NL: str = chr(10),
      TICKS: str = chr(96) + chr(96) + chr(96);
 
@@ -5,10 +7,8 @@ def:pub esc(s: str) -> str {
     return rx(rx(rx(rx(s, "&", "&amp;"), "<", "&lt;"), ">", "&gt;"), "\"", "&quot;");
 }
 
-def rx(s: any, pattern: str, repl: str) -> str {
-    ctor: any = String;
-    native: any = ctor.prototype.replace;
-    return native.call(s, new(RegExp, pattern, "g"), repl);
+def rx(s: str, pattern: str, repl: str) -> str {
+    return new(RegExp, pattern, "g")[Symbol.replace](s, repl);
 }
 
 def inline(s: str) -> str {
@@ -19,7 +19,7 @@ def inline(s: str) -> str {
     out = rx(
         out,
         "\\[([^\\]]+)\\]\\(((?:https?://|/)[^)\\s]+)\\)",
-        "<a href=\"$2\" target=\"_blank\" rel=\"noreferrer\">$1</a>"
+        "<a href=\"$2\" target=\"_blank\" rel=\"noreferrer\">$1</a>",
     );
     out = rx(out, "\\b([FRI]-[0-9a-f]{6})\\b", "<code class=\"ref\">$1</code>");
     return out;
@@ -99,20 +99,12 @@ def:pub md_to_html(text: str) -> str {
             }
             lv = min(4, max(1, level));
             out.append(
-                "<h"
-                    + str(lv)
-                    + ">"
-                    + inline(stripped[level:].strip())
-                    + "</h"
-                    + str(lv)
-                    + ">"
+                "<h" + str(lv) + ">" + inline(stripped[level:].strip()) + "</h" + str(lv) + ">"
             );
             i += 1;
             continue;
         }
-        if stripped.startswith("|")
-            and i + 1 < len(lines)
-            and is_table_sep(lines[i + 1]) {
+        if stripped.startswith("|") and i + 1 < len(lines) and is_table_sep(lines[i + 1]) {
             flush_para();
             close_list();
             head = cells(stripped);
@@ -121,10 +113,8 @@ def:pub md_to_html(text: str) -> str {
             while j < len(lines) and lines[j].strip().startswith("|") {
                 rows.append(
                     "<tr>"
-                        + "".join(
-                            ["<td>" + inline(c) + "</td>" for c in cells(lines[j])]
-                        )
-                        + "</tr>"
+                        + "".join(["<td>" + inline(c) + "</td>" for c in cells(lines[j])])
+                        + "</tr>",
                 );
                 j += 1;
             }
@@ -133,7 +123,7 @@ def:pub md_to_html(text: str) -> str {
                     + "".join(["<th>" + inline(h) + "</th>" for h in head])
                     + "</tr></thead><tbody>"
                     + "".join(rows)
-                    + "</tbody></table>"
+                    + "</tbody></table>",
             );
             i = j;
             continue;
@@ -176,5 +166,5 @@ def:pub md_to_html(text: str) -> str {
 }
 
 def:pub Markdown(text: str, className: str = "") -> JsxElement {
-    <div className={"md text-sm " + className}>{unsafe_html(md_to_html(text))}</div>
+    return <div className={"md text-sm " + className}>{unsafe_html(md_to_html(text))}</div>;
 }

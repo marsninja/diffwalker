@@ -1,4 +1,5 @@
 import from "lucide-react" { FileCode2 }
+import from "@jac/runtime" { unsafe_html }
 
 glob KEYWORDS: list[str] = [
          "def",
@@ -46,7 +47,7 @@ glob KEYWORDS: list[str] = [
          "yield",
          "True",
          "False",
-         "None"
+         "None",
      ],
      BUILTIN_TYPES: list[str] = [
          "str",
@@ -58,7 +59,7 @@ glob KEYWORDS: list[str] = [
          "any",
          "JsxElement",
          "JsxPage",
-         "Generator"
+         "Generator",
      ];
 
 def is_word(ch: str) -> bool {
@@ -83,7 +84,7 @@ def:pub highlight(line: str) -> str {
             out.append(
                 "<span style=\"color:var(--ink-muted);font-style:italic\">"
                     + esc(line[i:])
-                    + "</span>"
+                    + "</span>",
             );
             break;
         }
@@ -95,11 +96,7 @@ def:pub highlight(line: str) -> str {
                 }
                 j += 1;
             }
-            out.append(
-                "<span style=\"color:var(--series-3)\">"
-                    + esc(line[i:j + 1])
-                    + "</span>"
-            );
+            out.append("<span style=\"color:var(--series-3)\">" + esc(line[i:j + 1]) + "</span>");
             i = j + 1;
             continue;
         }
@@ -112,26 +109,16 @@ def:pub highlight(line: str) -> str {
             base = word.split(":")[0];
             if base in KEYWORDS {
                 out.append(
-                    "<span style=\"color:var(--series-7);font-weight:500\">"
-                        + esc(word)
-                        + "</span>"
+                    "<span style=\"color:var(--series-7);font-weight:500\">" + esc(word) + "</span>"
                 );
             } elif word in BUILTIN_TYPES {
-                out.append(
-                    "<span style=\"color:var(--series-4)\">" + esc(word) + "</span>"
-                );
+                out.append("<span style=\"color:var(--series-4)\">" + esc(word) + "</span>");
             } elif ch >= "0" and ch <= "9" {
-                out.append(
-                    "<span style=\"color:var(--series-2)\">" + esc(word) + "</span>"
-                );
+                out.append("<span style=\"color:var(--series-2)\">" + esc(word) + "</span>");
             } elif j < n and line[j] == "(" {
-                out.append(
-                    "<span style=\"color:var(--series-1)\">" + esc(word) + "</span>"
-                );
+                out.append("<span style=\"color:var(--series-1)\">" + esc(word) + "</span>");
             } elif ch >= "A" and ch <= "Z" {
-                out.append(
-                    "<span style=\"color:var(--series-5)\">" + esc(word) + "</span>"
-                );
+                out.append("<span style=\"color:var(--series-5)\">" + esc(word) + "</span>");
             } else {
                 out.append(esc(word));
             }
@@ -139,9 +126,7 @@ def:pub highlight(line: str) -> str {
             continue;
         }
         if ch == "-" and i + 2 < n and line[i + 1] == "-" and line[i + 2] == ">" {
-            out.append(
-                "<span style=\"color:var(--series-2);font-weight:600\">--&gt;</span>"
-            );
+            out.append("<span style=\"color:var(--series-2);font-weight:600\">--&gt;</span>");
             i += 3;
             continue;
         }
@@ -154,11 +139,11 @@ def:pub highlight(line: str) -> str {
 def:pub CodeSpotlight(
     path: str, needle: str = "", before: int = 2, after: int = 14, title: str = ""
 ) -> JsxElement {
-    has snip: any = None;
+    has snip: CodeSnippet | None = None;
     async can with [path, needle] entry {
         snip = await source_snippet(path, needle, before, after);
     }
-    <div
+    return <div
         className="overflow-hidden rounded-xl border border-border bg-[var(--chart-surface)] shadow-sm"
     >
         <div className="flex items-center gap-2 border-b border-border px-3 py-2">
@@ -167,38 +152,38 @@ def:pub CodeSpotlight(
                 <span className="size-2.5 rounded-full bg-[#febc2e]"></span>
                 <span className="size-2.5 rounded-full bg-[#28c840]"></span>
             </span>
-            <FileCode2 className="ml-1 size-3.5 text-muted-foreground"/>
-            <span className="truncate font-mono text-[11px] text-muted-foreground">
-                {path}
-            </span>
-            {if title {
-                <span
-                    className="ml-auto shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] text-primary"
-                >
-                    {title}
-                </span>
-            }}
+            <FileCode2 className="ml-1 size-3.5 text-muted-foreground" />
+            <span className="truncate font-mono text-[11px] text-muted-foreground">{path}</span>
+            {
+                if title {
+                    <span
+                        className="ml-auto shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] text-primary"
+                    >{title}</span>
+                }
+            }
         </div>
-        {if not snip {
-            <div className="shimmer h-48"></div>
-        } else {
-            <div className="max-h-[420px] overflow-auto py-2 thin-scroll">
-                {for (i, ln) in enumerate(snip.lines) {
-                    <div
-                        key={str(i)}
-                        className="flex font-mono text-[11.5px] leading-[1.6]"
-                    >
-                        <span
-                            className="w-10 shrink-0 select-none pr-3 text-right text-muted-foreground/50"
-                        >
-                            {str(snip.start + i)}
-                        </span>
-                        <span className="whitespace-pre pr-4">
-                            {unsafe_html(highlight(ln) or " ")}
-                        </span>
-                    </div>
-                }}
-            </div>
-        } }
-    </div>
+        {
+            if not snip {
+                <div className="shimmer h-48"></div>
+            } else {
+                <div className="max-h-[420px] overflow-auto py-2 thin-scroll">
+                    {
+                        for (i, ln) in enumerate(snip.lines) {
+                            <div
+                                key={str(i)}
+                                className="flex font-mono text-[11.5px] leading-[1.6]"
+                            >
+                                <span
+                                    className="w-10 shrink-0 select-none pr-3 text-right text-muted-foreground/50"
+                                >{str(snip.start + i)}</span>
+                                <span className="whitespace-pre pr-4">
+                                    {unsafe_html(highlight(ln) or " ")}
+                                </span>
+                            </div>
+                        }
+                    }
+                </div>
+            }
+        }
+    </div>;
 }

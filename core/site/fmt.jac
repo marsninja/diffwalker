@@ -1,24 +1,24 @@
 glob SEV_COLOR: dict[str, str] = {
-         "critical": "var(--status-critical)",
-         "high": "var(--status-serious)",
-         "medium": "var(--status-warning)",
-         "low": "var(--sev-low)",
-         "info": "var(--sev-info)"
-     };
+    "critical": "var(--status-critical)",
+    "high": "var(--status-serious)",
+    "medium": "var(--status-warning)",
+    "low": "var(--sev-low)",
+    "info": "var(--sev-info)",
+};
 
 glob:pub SEV_LABEL: dict[str, str] = {
-         "critical": "Critical",
-         "high": "High",
-         "medium": "Medium",
-         "low": "Low",
-         "info": "Info"
-     };
+    "critical": "Critical",
+    "high": "High",
+    "medium": "Medium",
+    "low": "Low",
+    "info": "Info",
+};
 
 glob VERDICT_LABEL: dict[str, str] = {
          "approve": "Approve",
          "comment": "Comment",
          "request_changes": "Changes requested",
-         "": "Not reviewed"
+         "": "Not reviewed",
      },
      SERIES: list[str] = [
          "var(--series-1)",
@@ -28,7 +28,7 @@ glob VERDICT_LABEL: dict[str, str] = {
          "var(--series-5)",
          "var(--series-6)",
          "var(--series-7)",
-         "var(--series-8)"
+         "var(--series-8)",
      ],
      LANG_COLOR_ORDER: list[str] = [
          "Python",
@@ -38,7 +38,7 @@ glob VERDICT_LABEL: dict[str, str] = {
          "Markdown",
          "Rust",
          "Zig",
-         "C"
+         "C",
      ];
 
 def:pub sev_order -> list[str] {
@@ -54,7 +54,7 @@ def:pub series_color(i: int) -> str {
 }
 
 def:pub sev_color(sev: str) -> str {
-    return SEV_COLOR[sev] or "var(--ink-muted)";
+    return SEV_COLOR.get(sev, "var(--ink-muted)");
 }
 
 def:pub risk_color(score: int) -> str {
@@ -87,7 +87,7 @@ def:pub risk_label(score: int) -> str {
 }
 
 def:pub verdict_label(v: str) -> str {
-    return VERDICT_LABEL[v] or v;
+    return VERDICT_LABEL.get(v, v);
 }
 
 def:pub verdict_color(v: str) -> str {
@@ -103,9 +103,13 @@ def:pub verdict_color(v: str) -> str {
     return "var(--ink-muted)";
 }
 
+"""A number as text, a whole one with no fraction: `3`, never `3.0`."""
+def:pub num_text(n: float) -> str {
+    return str(int(n)) if int(n) == n else str(n);
+}
+
 def:pub fixed1(n: float) -> str {
-    r = round(n * 10) / 10;
-    return str(int(r)) if int(r) == r else str(r);
+    return num_text(round(n * 10) / 10);
 }
 
 def:pub fmt_num(n: float) -> str {
@@ -160,7 +164,7 @@ def:pub ago_iso(iso: str) -> str {
         return "";
     }
     t: float = Date.parse(iso);
-    if not t {
+    if isNaN(t) or not t {
         return iso[:10];
     }
     return ago(t / 1000);

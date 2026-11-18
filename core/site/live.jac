@@ -1,20 +1,25 @@
-import from "@jac/runtime" { jacLogout, jacIsLoggedIn }
-import from "@jac/desktop" { profiles }
+import from "@jac/runtime" { RemoteRejected, jacIsLoggedIn, jacLogout }
 
-glob NL: str = chr(10),
-     _session: list[str] = [""],
-     _seq: list[int] = [0],
-     _started: list[bool] = [False],
-     _listeners: list[any] = [],
-     _channels: dict[str, list[any]] = {},
-     _status: list[str] = ["connecting"];
+"""A toast the shell shows."""
+obj Toast {
+    has message: str,
+        tone: str,
+        id: str;
+}
+
+glob _session: str = "",
+     _seq: int = 0,
+     _started: bool = False,
+     _listeners: list[Callable[[LiveEvent], None]] = [],
+     _channels: dict[str, list[Callable[[any], None]]] = {},
+     _status: str = "connecting";
 
 def:pub rand_id -> str {
     return str(int(Math.random() * 1000000000));
 }
 
 def:pub session_id -> str {
-    if not _session[0] {
+    if not _session {
         existing = "";
         try {
             existing = sessionStorage.getItem("dw-session") or "";
@@ -22,17 +27,17 @@ def:pub session_id -> str {
             existing = "";
         }
         if existing {
-            _session[0] = existing;
+            _session = existing;
         } else {
-            _session[0] = "w-" + rand_id();
+            _session = "w-" + rand_id();
             try {
-                sessionStorage.setItem("dw-session", _session[0]);
+                sessionStorage.setItem("dw-session", _session);
             } except Exception {
-                _session[0] = _session[0];
+                _session = _session;
             }
         }
     }
-    return _session[0];
+    return _session;
 }
 
 def:pub thread_id -> str {
@@ -64,71 +69,62 @@ def:pub new_thread -> str {
 }
 
 def:pub live_status -> str {
-    return _status[0];
+    return _status;
 }
 
-def:pub on_live(handler: any) -> any {
+"""Hear every event of the live stream; the function returned stops hearing."""
+def:pub on_live(handler: Callable[[LiveEvent], None]) -> Callable[[], None] {
     _listeners.append(handler);
-    return lambda { if handler in _listeners { _listeners.remove(handler); }};
+    return lambda {
+        if handler in _listeners {
+            _listeners.remove(handler);
+        }
+    };
 }
 
 def:pub publish(channel: str, payload: any) {
-    subs = list(_channels[channel] or []);
+    subs = list(_channels.get(channel, []));
     for fn in subs {
         try {
-            fn.call(None, payload);
+            fn(payload);
         } except Exception as e {
             console.error("[channel]", channel, e);
         }
     }
 }
 
-def:pub on_channel(channel: str, handler: any) -> any {
-    if not _channels[channel] {
+"""Hear what is published on a channel; the function returned stops hearing."""
+def:pub on_channel(channel: str, handler: Callable[[any], None]) -> Callable[[], None] {
+    if channel not in _channels {
         _channels[channel] = [];
     }
     _channels[channel].append(handler);
     return lambda {
-        subs = _channels[channel] or [];
+        subs = _channels.get(channel, []);
         if handler in subs {
             subs.remove(handler);
         }
     };
 }
 
-def _dispatch(evt: any) {
-    if evt.seq and evt.seq > _seq[0] {
-        _seq[0] = evt.seq;
+def _dispatch(evt: LiveEvent) {
+    if evt.seq > _seq {
+        _seq = evt.seq;
     }
     for fn in list(_listeners) {
         try {
-            fn.call(None, evt);
+            fn(evt);
         } except Exception as e {
             console.error("[live] handler", e);
         }
     }
 }
 
-"""Headers for a raw fetch to a `def:protect` endpoint: the jac client keeps its session token in localStorage."""
-def:pub auth_headers -> dict[str, str] {
-    headers: dict[str, str] = {"Content-Type": "application/json"};
-    token = "";
-    try {
-        token = localStorage.getItem("jac_token") or "";
-    } except Exception {
-        token = "";
-    }
-    if token {
-        headers["Authorization"] = "Bearer " + token;
-    }
-    return headers;
-}
-
 """A rejected session. On local profiles there is no sign-in to return to: reload, and
-the desktop host signs the page in again as the active profile; a second rejection
-within half a minute leaves the profile instead of looping."""
+the app signs the page in again as the open profile; a second rejection within half a
+minute closes the profile instead of looping."""
 def:pub signed_out {
-    if profiles.enabled() {
+    if profiles_on() {
         last = 0;
         try {
             last = int(sessionStorage.getItem("dw-reauth") or "0");
@@ -137,7 +133,7 @@ def:pub signed_out {
         }
         now = Date.now();
         if now - last < 30000 {
-            profiles.leave();
+            queueMicrotask(lambda { leave_profile() });
             return;
         }
         sessionStorage.setItem("dw-reauth", str(now));
@@ -151,73 +147,33 @@ def:pub signed_out {
     }
 }
 
-async def:pub read_sse(url: str, body: any, on_frame: any) -> bool {
-    resp = await fetch(
-        url,
-        {
-            "method": "POST",
-            "headers": auth_headers(),
-            "body": JSON.stringify(body)
-        }
-    );
-    if resp.status == 401 {
-        signed_out();
-        return False;
-    }
-    if not resp.ok or not resp.body {
-        return False;
-    }
-    reader = resp.body.getReader();
-    decoder = new(TextDecoder);
-    buf = "";
-    feeding = True;
-    while feeding {
-        part = await reader.read();
-        if part.done {
-            feeding = False;
-            continue;
-        }
-        buf = buf + decoder.decode(part.value, {"stream": True});
-        frames = buf.split(NL + NL);
-        buf = frames.pop();
-        for frame in frames {
-            if frame.startswith("event:") {
-                continue;
-            }
-            for line in frame.split(NL) {
-                if line.startswith("data: ") {
-                    try {
-                        on_frame.call(None, JSON.parse(line[6:]));
-                    } except Exception as e {
-                        console.error("[sse] frame", e);
-                    }
-                }
-            }
-        }
-    }
-    return True;
-}
-
+"""Follow the server's `live` stream for as long as the user is signed in, handing each
+event to the listeners; a stream that ends or fails is opened again after the last event
+seen."""
 async def:pub start_live {
-    if _started[0] {
+    if _started {
         return;
     }
-    _started[0] = True;
+    _started = True;
     while jacIsLoggedIn() {
         try {
-            _status[0] = "live";
+            _status = "live";
             publish("live-status", "live");
-            await read_sse("/function/live", {"after": max(0, _seq[0])}, _dispatch);
+            async for evt in live(max(0, _seq)) {
+                _dispatch(evt);
+            }
+        } except RemoteRejected {
+            signed_out();
         } except Exception as e {
             console.warn("[live] reconnecting", e);
         }
-        _status[0] = "reconnecting";
+        _status = "reconnecting";
         publish("live-status", "reconnecting");
-        await new(Promise, lambda (resolve: any) { setTimeout(resolve, 1500); });
+        await new(Promise, lambda (resolve: any) { setTimeout(resolve, 1500) });
     }
-    _started[0] = False;
+    _started = False;
 }
 
 def:pub toast(message: str, tone: str = "info") {
-    publish("toast", {"message": message, "tone": tone, "id": rand_id()});
+    publish("toast", Toast(message=message, tone=tone, id=rand_id()));
 }

@@ -1,16 +1,6 @@
 import math;
 import re;
 
-obj FileRisk {
-    has path: str = "",
-        score: int = 0,
-        kind: str = "code",
-        signals: list[str] = [],
-        additions: int = 0,
-        deletions: int = 0,
-        language: str = "";
-}
-
 obj StaticHit {
     has path: str = "",
         line: int = 0,
@@ -37,7 +27,7 @@ glob SENSITIVE: list[str] = [
          ".github/workflows",
          "dockerfile",
          "sql",
-         "config"
+         "config",
      ],
      LOW_RISK_LANGS: list[str] = ["Markdown", "Docs", "Text", "Lockfile", "SVG"],
      PATTERNS: list[list[str]] = [
@@ -45,57 +35,47 @@ glob SENSITIVE: list[str] = [
              "(?<![A-Za-z0-9_-])(?:sk-ant-[A-Za-z0-9_-]{20,}|sk-(?=[A-Za-z0-9]*[0-9])[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{30,}|xox[bpas]-[A-Za-z0-9-]{10,})",
              "critical",
              "security",
-             "Possible hard-coded credential"
+             "Possible hard-coded credential",
          ],
          [
              "(?i)(password|passwd|secret|api_key)\\s*[=:]\\s*['\"][^'\"]{4,}",
              "high",
              "security",
-             "Literal secret assigned in code"
+             "Literal secret assigned in code",
          ],
          ["(?<![.\\w])(?:eval|exec)\\(", "high", "security", "Dynamic code execution"],
-         [
-             "shell\\s*=\\s*True|os\\.system\\(",
-             "high",
-             "security",
-             "Shell command execution"
-         ],
+         ["shell\\s*=\\s*True|os\\.system\\(", "high", "security", "Shell command execution"],
          [
              "pickle\\.loads?\\(|yaml\\.load\\((?!.*Loader)",
              "medium",
              "security",
-             "Unsafe deserialization"
+             "Unsafe deserialization",
          ],
          [
              "innerHTML\\s*=|dangerouslySetInnerHTML|unsafe_html\\(",
              "medium",
              "security",
-             "Raw HTML injection point"
+             "Raw HTML injection point",
          ],
          [
              "except\\s*(Exception)?\\s*(as \\w+)?\\s*[:{]\\s*(pass|\\{\\s*\\})",
              "medium",
              "reliability",
-             "Exception swallowed silently"
+             "Exception swallowed silently",
          ],
-         [
-             "\\b(TODO|FIXME|HACK|XXX)\\b",
-             "info",
-             "maintainability",
-             "New TODO/FIXME left in code"
-         ],
+         ["\\b(TODO|FIXME|HACK|XXX)\\b", "info", "maintainability", "New TODO/FIXME left in code"],
          [
              "console\\.log\\(|\\bbreakpoint\\(\\)|\\bpdb\\.set_trace",
              "low",
              "style",
-             "Debug statement left in"
+             "Debug statement left in",
          ],
          [
              "verify\\s*=\\s*False|rejectUnauthorized\\s*:\\s*false",
              "high",
              "security",
-             "TLS verification disabled"
-         ]
+             "TLS verification disabled",
+         ],
      ];
 
 def file_kind(path: str, language: str) -> str {
@@ -111,16 +91,18 @@ def file_kind(path: str, language: str) -> str {
         or ".spec." in name
         or "/tests/" in "/" + p
         or "/test/" in "/" + p
-        or "/__tests__/" in "/" + p {
+        or "/__tests__/" in "/" + p
+    {
         return "test";
     }
     if language in ("Markdown", "Docs", "Text") {
         return "docs";
     }
-    if language in ("Lockfile", )
+    if language in ("Lockfile",)
         or name.endswith(".lock")
         or "generated" in p
-        or name.endswith(".min.js") {
+        or name.endswith(".min.js")
+    {
         return "generated";
     }
     if language in ("JSON", "TOML", "YAML") {
@@ -134,7 +116,7 @@ def static_hits(f: FileDiff) -> list[StaticHit] {
     if f.binary or file_kind(f.path, f.language) in ("docs", "generated") {
         return hits;
     }
-    seen: set = set();
+    seen: set[str] = set();
     for h in f.hunks {
         for ln in h.lines {
             if ln.kind != "add" {
@@ -158,10 +140,8 @@ def static_hits(f: FileDiff) -> list[StaticHit] {
                             severity=pat[1],
                             category=pat[2],
                             title=pat[3],
-                            body="Pattern `"
-                                + matched.group(0)[:60]
-                                + "` on an added line."
-                        )
+                            body="Pattern `" + matched.group(0)[:60] + "` on an added line.",
+                        ),
                     );
                 }
             }
@@ -196,19 +176,17 @@ def score_file(f: FileDiff, has_tests: bool, hotspot_rank: dict[str, int]) -> Fi
         for ln in h.lines {
             if ln.kind == "add" {
                 t = ln.text.strip();
-                if t.startswith(
-                    (
-                        "if ",
-                        "elif ",
-                        "for ",
-                        "while ",
-                        "try",
-                        "except",
-                        "match ",
-                        "case ",
-                        "switch"
-                    )
-                ) {
+                if t.startswith((
+                    "if ",
+                    "elif ",
+                    "for ",
+                    "while ",
+                    "try",
+                    "except",
+                    "match ",
+                    "case ",
+                    "switch",
+                )) {
                     branching += 1;
                 }
             }
@@ -251,19 +229,12 @@ def score_file(f: FileDiff, has_tests: bool, hotspot_rank: dict[str, int]) -> Fi
         signals=signals,
         additions=f.additions,
         deletions=f.deletions,
-        language=f.language
+        language=f.language,
     );
 }
 
 def triage(files: list[FileDiff], hotspot_paths: list[str]) -> list[FileRisk] {
-    has_tests = len(
-        [
-            f
-            for f in files
-            if file_kind(f.path, f.language) == "test"
-        ]
-    )
-        > 0;
+    has_tests = len([f for f in files if file_kind(f.path, f.language) == "test"]) > 0;
     ranks: dict[str, int] = {};
     for (i, p) in enumerate(hotspot_paths) {
         ranks[p] = i;

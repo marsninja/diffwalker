@@ -15,7 +15,7 @@ glob SYMBOL_PATTERNS: list[str] = [
          "^\\s*(?:export\\s+)?(?:const|let)\\s+([A-Za-z_]\\w{2,})\\s*=\\s*(?:async\\s*)?\\(",
          "^\\s*(?:pub\\s+)?fn\\s+([A-Za-z_]\\w{2,})",
          "^\\s*func\\s+(?:\\([^)]*\\)\\s*)?([A-Za-z_]\\w{2,})",
-         "^\\s*impl\\s+(?:[A-Za-z_]\\w*\\.)*([A-Za-z_]\\w{2,})"
+         "^\\s*impl\\s+(?:[A-Za-z_]\\w*\\.)*([A-Za-z_]\\w{2,})",
      ],
      COMMON_NAMES: list[str] = [
          "main",
@@ -32,7 +32,7 @@ glob SYMBOL_PATTERNS: list[str] = [
          "update",
          "render",
          "handle",
-         "postinit"
+         "postinit",
      ],
      MAX_SYMBOLS: int = 4,
      MAX_CALLERS: int = 3,
@@ -69,8 +69,16 @@ def changed_symbols(f: FileDiff) -> list[str] {
     return found[:MAX_SYMBOLS];
 }
 
-def _callers(repo: str, ref: str, f: FileDiff) -> list[list[any]] {
-    out: list[list[any]] = [];
+"""A place that uses a symbol the change defines or edits."""
+obj Caller {
+    has path: str,
+        line: int,
+        symbol: str,
+        text: str;
+}
+
+def _callers(repo: str, ref: str, f: FileDiff) -> list[Caller] {
+    out: list[Caller] = [];
     seen: set[str] = set();
     for sym in changed_symbols(f) {
         hits = 0;
@@ -80,7 +88,9 @@ def _callers(repo: str, ref: str, f: FileDiff) -> list[list[any]] {
                 continue;
             }
             text = parts[2].strip();
-            if re.search(SYMBOL_PATTERNS[0], text) or text.startswith(("import ", "from ", "#", "//")) {
+            if re.search(SYMBOL_PATTERNS[0], text)
+                or text.startswith(("import ", "from ", "#", "//"))
+            {
                 continue;
             }
             key = parts[0] + ":" + parts[1];
@@ -88,7 +98,7 @@ def _callers(repo: str, ref: str, f: FileDiff) -> list[list[any]] {
                 continue;
             }
             seen.add(key);
-            out.append([parts[0], int(parts[1]), sym, text[:160]]);
+            out.append(Caller(path=parts[0], line=int(parts[1]), symbol=sym, text=text[:160]));
             hits += 1;
             if hits >= MAX_CALLERS {
                 break;
@@ -103,7 +113,9 @@ def _tests_for(repo: str, ref: str, f: FileDiff) -> list[str] {
     if len(stem) < 3 or file_kind(f.path, f.language) == "test" {
         return [];
     }
-    args = ["ls-tree", "-r", "--name-only", ref] if ref and ref != "WORKTREE" and safe_ref(ref) else ["ls-files"];
+    args = ["ls-tree", "-r", "--name-only", ref]
+        if ref and ref != "WORKTREE" and safe_ref(ref)
+        else ["ls-files"];
     out: list[str] = [];
     for p in git_out(repo, args, 30).split("\n") {
         name = p.rsplit("/", 1)[-1].lower();
@@ -118,10 +130,10 @@ def _tests_for(repo: str, ref: str, f: FileDiff) -> list[str] {
 }
 
 """Files that most often changed in the same commit as `path`, from the mined history."""
-def co_changes(repo: str, path: str, limit: int = 3) -> list[list[any]] {
+def co_changes(repo: str, path: str, limit: int = 3) -> list[tuple[str, int]] {
     counts: dict[str, int] = {};
     for c in history(repo) {
-        paths = [str(x[0]) for x in c.files];
+        paths = [x.path for x in c.files];
         if path not in paths or len(paths) > 24 {
             continue;
         }
@@ -131,8 +143,8 @@ def co_changes(repo: str, path: str, limit: int = 3) -> list[list[any]] {
             }
         }
     }
-    ranked = sorted(counts.items(), key=lambda (kv: any) -> int { return 0 - kv[1]; });
-    return [[kv[0], kv[1]] for kv in ranked if kv[1] >= 2][:limit];
+    ranked = sorted(counts.items(), key=lambda (kv: tuple[str, int]) -> int { return 0 - kv[1]; });
+    return [kv for kv in ranked if kv[1] >= 2][:limit];
 }
 
 """Attach the related-code neighbourhood under a FileChange, one CodeRef per related
@@ -141,13 +153,15 @@ how many refs it added."""
 def build_context(repo: str, ref: str, fc: FileChange, f: FileDiff) -> int {
     seen: set[str] = set();
     for c in _callers(repo, ref, f) {
-        key = f"{c[0]}:{c[1]}";
+        key = f"{c.path}:{c.line}";
         if key in seen {
             continue;
         }
         seen.add(key);
-        seen.add(c[0]);
-        fc +>:CalledFrom(symbol=c[2]):+> CodeRef(path=c[0], line=c[1], symbol=c[2], preview=c[3]);
+        seen.add(c.path);
+        fc +>:CalledFrom(symbol=c.symbol):+> CodeRef(
+            path=c.path, line=c.line, symbol=c.symbol, preview=c.text
+        );
     }
     for t in _tests_for(repo, ref, f) {
         if t in seen {
@@ -156,14 +170,16 @@ def build_context(repo: str, ref: str, fc: FileChange, f: FileDiff) -> int {
         seen.add(t);
         fc +>:TestedBy:+> CodeRef(path=t, line=1, preview="test file");
     }
-    for pair in co_changes(repo, f.path, MAX_COUPLED + 2) {
-        if pair[0] in seen {
+    for (path, times) in co_changes(repo, f.path, MAX_COUPLED + 2) {
+        if path in seen {
             continue;
         }
-        seen.add(pair[0]);
-        fc +>:ChangesWith(times=pair[1]):+> CodeRef(path=pair[0], line=1, preview=f"changed together {pair[1]} times");
+        seen.add(path);
+        fc +>:ChangesWith(times=times):+> CodeRef(
+            path=path, line=1, preview=f"changed together {times} times"
+        );
     }
-    return len([fc-->][?:CodeRef]);
+    return len([fc --> [?:CodeRef]]);
 }
 
 """Read the code a CodeRef points at: around its line, or the top of the file."""
