@@ -8,7 +8,7 @@ def:pub esc(s: str) -> str {
 }
 
 def rx(s: str, pattern: str, repl: str) -> str {
-    return String.prototype.replace.call(s, new(RegExp, pattern, "g"), repl);
+    return new(RegExp, pattern, "g")[Symbol.replace](s, repl);
 }
 
 def inline(s: str) -> str {

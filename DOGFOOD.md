@@ -23,8 +23,17 @@ Against Anthropic's API (`claude-sonnet-5-5`): a full review from the server
 review from the command line in its own process (its investigator chose what
 to read with `visit ... by llm`), and Copilot turns over the API and in the
 site's pane in headless Chromium, where it listed findings, opened the pull
-request and jumped to the line it was talking about. The phone app was built
-but not run on a device.
+request and jumped to the line it was talking about.
+
+The phone app was built as an Android app (`dist/mobile/mobile.apk`) and run
+on an emulator with `neojac run mobile`, against the same server and model:
+sign-in, the inbox, a review started from the phone (13 model calls, 7
+findings, its eight stages arriving as they finished), insights, and a
+Copilot turn of six tool calls whose navigation moved the phone's tabs.
+Running it found a defect in neojac (a conditional expression's type, below)
+and two in the app's own layout, which had never been on a phone: the sign-in
+fields had no height, and the header and the tabs were under the phone's
+bars.
 
 ## Found and fixed in neojac
 
@@ -57,6 +66,11 @@ branch.
 | A task's type | A task's type could not be written (`list[Task[int]]` was E5090), so a field could not hold one, and `ReviewRun` had to queue its jobs and start every task in one comprehension in `gather`. | `Task[T]` is the type of a task whose value is a `T`. | `Pending.task` in `core/review/engine.jac`: `ReviewRun.submit` starts a file's reviewer where the walker visits the file, and `gather` waits for it in the walker's exit. |
 | `sem` on an enum's member | `sem Severity.CRITICAL = ...` was E2018, so what each severity and verdict means was written in the `sem` of every field that holds one. | An enum's member takes a `sem`, and an enum's schema says what each described member means, after the `sem` of the field or parameter that holds it. | `Severity` and `VerdictKind` in `core/review/agents.jac`: each member is described once, where the enum is. |
 | Memory that one thread allocates and another frees | A block freed by a thread that did not allocate it stayed with the freeing thread for ever, so a server that answers calls on threads grew with every call. | A small block goes back to the page it came from, and a large one past what a thread keeps is any thread's to take. | The server, under any load. |
+| The phone app as an Android app, and running it | `neojac build mobile` made the bundles and stopped. An installable app, the SDK and JDK it takes, and putting it on a phone were left to Expo's own commands by hand. | `neojac build <app>` makes `dist/<app>/<app>.apk` where an Android SDK is at hand, `neojac install` fetches a pinned SDK, JDK and emulator once `[android] licenses = "accepted"` says the project accepts the SDK's licenses, and `neojac run <app>` installs the app on a connected phone or an emulator, forwards the ports of the spaces it reaches on this machine, and starts it. `[apps.<app>]` gives the app's `name`, `identifier` (checked: E1289) and `version`. A build with nothing changed runs nothing. | `[android]` and `[apps.mobile]` in `jac.toml`; `neojac run mobile`. |
+| A conditional expression with a branch of no known type | `"100%" if embedded else viewport.height` was typed `str`, so the phone app stopped at its first render with `expected str, found int`. The page's preview always took the first branch, so nothing showed it until the app ran on a phone. | A conditional's type is one branch's only where the other's is of it; a branch that is an `any` or a union makes it their union. | The root view's style in `core/native/DiffwalkerMobile.jac`. |
+| An element written as a statement in a JSX block | `{ if busy { <Spinner /> } }` was emitted as an item of a list with no key, so React's development build warned, and with two `if`s in one block the second's element took the first's place when the first was absent. | An element written as a statement of a block, outside its loops, is keyed by its place among the block's elements. A key the program wrote is kept, and an element a loop makes takes its key from the program. | Every `{ if ... { <el /> } }` of the site and the phone app: 173 elements. |
+| A JavaScript method read by its key | `re[Symbol.replace](s, r)` called the method with no `this`, so it failed. | An item of JavaScript's own object that is one of JavaScript's functions is called as JavaScript calls `x[k](...)`: on the object. | `rx` in `core/site/markdown.jac`, which was `String.prototype.replace.call(s, ...)`. |
+| A name `@jac/runtime` does not have | `import from "@jac/runtime" { NoSuchThing }` checked clean, and the import failed when the space was bundled. jac's `SignupResult` was imported that way for a while. | neojac's own modules of a JS space (`@jac/runtime`, `@jac/mobui`) have the names they export under the space's UI binding; any other is E1145, as an npm package's is. | Every import from `@jac/runtime` and `@jac/mobui` in `core/site/` and `core/native/` is checked. |
 
 ## Open
 
@@ -78,11 +92,12 @@ its fix yet.
 | Defect or gap | Where it shows in diffwalker |
 | --- | --- |
 | An effect that makes a lambda is E1225 for the state the lambda reads, though the lambda runs later and reads the state as last shown. Listing the state restarts the effect on every change. | The timer of `AgentWalkthrough` in `core/site/built/Built.jac` calls the component's `def advance`, and `ReviewWorkspace.jac`'s live handler is its `def on_review_event`, where each was a lambda inside the effect. |
-| `import from "@jac/runtime" { NoSuchThing }` checks clean; the import fails when the space is bundled. An npm package's missing name is E1145. | Nothing reported that jac's `SignupResult` is not in `@jac/runtime`. The port removed the import from `core/site/auth/SignIn.jac` and `core/native/DiffwalkerMobile.jac`. |
-| A JavaScript method read as an item and called (`re[Symbol.replace](s, r)`) is called with no `this`. | Not used. `core/site/markdown.jac` calls `String.prototype.replace.call(s, ...)`. |
-| An element written as a statement of an `if` block in JSX is emitted as an item of an array with no key, so React's development build warns. The page renders correctly. | Every `{ if ... { <el /> } }` of the site, for example the tick labels of `BarChart` in `core/site/charts/basic.jac`. |
-| The statics of `Number` (`Number.isNaN`, `Number.isFinite`, `Number.MAX_VALUE`) are E1030. | `ago_iso` in `core/site/fmt.jac` uses the global `isNaN`, which means the same for a number. |
 | `neojac fmt` lays a JSX element out on one long line when one of its attributes holds a lambda of two or more statements. | The "Previous step" and "Next step" buttons of `AgentWalkthrough` in `core/site/built/Built.jac`, left as the formatter makes them. |
+
+One thing first listed here is the language as designed, and is now in neojac's
+documentation: `Number.isNaN(x)` is E1030 because `Number` is Jac's interface of
+the number types, on every host. JavaScript's `Number` is `globalThis.Number`;
+`ago_iso` in `core/site/fmt.jac` uses the global `isNaN`.
 
 ### The language and the library
 
