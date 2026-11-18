@@ -52,7 +52,7 @@ emulator = true
 model = "claude-sonnet-5-5"
 
 [check.lint]
-select = ["default"]
+select = ["style"]
 
 [npm.web]
 name = "diffwalker"
