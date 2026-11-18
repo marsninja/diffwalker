@@ -72,6 +72,12 @@ branch.
 | A JavaScript method read by its key | `re[Symbol.replace](s, r)` called the method with no `this`, so it failed. | An item of JavaScript's own object that is one of JavaScript's functions is called as JavaScript calls `x[k](...)`: on the object. | `rx` in `core/site/markdown.jac`, which was `String.prototype.replace.call(s, ...)`. |
 | A name `@jac/runtime` does not have | `import from "@jac/runtime" { NoSuchThing }` checked clean, and the import failed when the space was bundled. jac's `SignupResult` was imported that way for a while. | neojac's own modules of a JS space (`@jac/runtime`, `@jac/mobui`) have the names they export under the space's UI binding; any other is E1145, as an npm package's is. | Every import from `@jac/runtime` and `@jac/mobui` in `core/site/` and `core/native/` is checked. |
 | A function an effect makes | An effect that made a lambda was E1225 for the state the lambda reads, though the lambda runs later and reads the state as last shown; listing that state restarted the effect at every change of it. | What a function the effect makes reads is not the effect's: only the effect's own body is checked against its dependency list. | The timer of `AgentWalkthrough` in `core/site/built/Built.jac` is a lambda in its effect again. `ReviewWorkspace.jac`'s live handler stays the named function it became: it is long enough to want a name. |
+| `os.fdopen` | `os.fdopen` was missing (E1145). | `os.fdopen(fd, mode)` is the builtin `open` of a descriptor: typed by its mode as `open` is, and a path is refused. A program that does not name it does not load `io` for it. | `run_login` in `cli/commands/common.jac` writes the token file through the descriptor it opened with mode 0600. |
+| A call that takes longer than 30 seconds | A native caller gave a crossing 30 seconds and then raised `RemoteTimeout`, so `start_review`, which returns when the review does, could not be waited for: the command-line app treated the timeout as "still running", followed the live stream, and read the outcome with a second call. | While an endpoint runs, the server tells its caller each 15 seconds that it is still answering (an interim reply, which a client passes over). A caller gives up on 30 seconds of silence, not on a call that takes long. | `start_on_server` in `cli/commands/review.jac` is the call and nothing else; a review slowed to 45 seconds returns its result from it. |
+| `neojac fmt` and an attribute that holds statements | An element with a lambda of two or more statements in an attribute was laid out with the rest of the element, and of the elements beside it, on the lambda's last line. | Such an element puts its attributes one to a line. | The "Previous step" and "Next step" buttons of `AgentWalkthrough` in `core/site/built/Built.jac`. |
+| The exception being handled | `logging`'s `Logger.exception` raised `NotImplementedError` in a native program (there was no `sys.exception()`), from inside the `except` clause that was reporting a failed Copilot turn, so the real error was never seen. | `sys.exception()` and `sys.exc_info()` give the exception a thread is handling, and `Logger.exception` logs it with its traceback. | `_turn` in `core/api.jac` logs a failed turn with `.exception(...)`. |
+| A wire that only a crossing's signature uses | A type a crossing's signature names must be wired into the calling module (E1182), and the wire was then reported unused (E1146) unless the module spelled the type somewhere, so callers wrote annotations they did not need. | A type named by the signature of a crossing the module calls is a use of its wire. The wire itself is still asked for: it is what puts the type in the caller's program. | The `wire ++> [...]` block of `archwire.jac` stays; no module needs an annotation to keep a wire. |
+| A crossing's type from another module of the endpoint's space | A class wired from a module placed in the endpoint's space, other than the endpoint's own, got E1182 asking for a wire the archwire already had, and a result class with a field of such a type was E1308 ("not sendable"). The caller sees both modules through their interfaces, and what one interface imports from another was never bound, so the signature's type did not resolve. | The types one interface module takes from another are bound, so such a type crosses, with the types of its fields. | Seen while the views were declared in `core/api.jac`. Every type that crosses is in `core/wire.jac` now, a module no space holds, which is the better place for them. |
 
 ## Open
 
@@ -79,29 +85,13 @@ Each of these is a defect or gap in neojac that still shows in diffwalker,
 either as code left in its natural form or as code written around it. None has
 its fix yet.
 
-### Tasks, crossings and streams
-
-| Defect or gap | Where it shows in diffwalker |
-| --- | --- |
-| A native caller gives a crossing 30 seconds (`RemoteTimeout`), and nothing lets a call say it runs longer. | `start_review` returns when the review ends. `start_on_server` in `cli/commands/review.jac` treats the timeout as "still running", follows the review on the live stream, and reads its outcome with `pr_detail`. |
-| A type a crossing's signature names must be wired into the calling module (E1182), and the module must then name it (E1146), even where it only passes the value on. | The `wire ++> [...]` block of `archwire.jac`, and annotations such as `detail: PRDetail = pr_detail(pr_id, "")` in `cli/commands/review.jac`. |
-| An endpoint whose result class has a field of a type the caller is not wired is E1308 ("not sendable") where E1182 would name the type and its wire. | Seen while the views were declared in `core/api.jac`. Every type that crosses is in `core/wire.jac`, so nothing waits on it. |
-| A class wired from a placed module other than the endpoint's own gets E1182 asking for a wire the archwire already has. | As above: the types that cross are in `core/wire.jac`, a module no space holds. |
-
-### Pages
-
-| Defect or gap | Where it shows in diffwalker |
-| --- | --- |
-| `neojac fmt` lays a JSX element out on one long line when one of its attributes holds a lambda of two or more statements. | The "Previous step" and "Next step" buttons of `AgentWalkthrough` in `core/site/built/Built.jac`, left as the formatter makes them. |
-
-One thing first listed here is the language as designed, and is now in neojac's
-documentation: `Number.isNaN(x)` is E1030 because `Number` is Jac's interface of
-the number types, on every host. JavaScript's `Number` is `globalThis.Number`;
-`ago_iso` in `core/site/fmt.jac` uses the global `isNaN`.
-
 ### The language and the library
 
 | Defect or gap | Where it shows in diffwalker |
 | --- | --- |
 | An enum cannot name its values' type (`enum Severity: str` is E5090). | `Severity`, `Category` and `VerdictKind` in `core/review/agents.jac` are plain enums, and the engine reads `.value` where it needs the string. |
-| `os.fdopen` is missing. | `run_login` in `cli/commands/common.jac` opens the token file with `os.open` and passes the descriptor to `open`. |
+
+One thing first listed here is the language as designed, and is now in neojac's
+documentation: `Number.isNaN(x)` is E1030 because `Number` is Jac's interface of
+the number types, on every host. JavaScript's `Number` is `globalThis.Number`;
+`ago_iso` in `core/site/fmt.jac` uses the global `isNaN`.

@@ -150,7 +150,7 @@ def run_login(server: str, username: str, register: bool) -> int {
     path = _token_file(server);
     os.makedirs(os.path.dirname(path), exist_ok=True);
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, stat.S_IRUSR | stat.S_IWUSR);
-    with open(fd, "w") as fh {
+    with os.fdopen(fd, "w") as fh {
         fh.write(token);
     }
     print(green("signed in as " + name) + dim("  token saved to " + path));

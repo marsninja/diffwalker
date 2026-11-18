@@ -21,7 +21,7 @@ graph import {
     core.analytics ++> cli.commands.browse { contributors, hotspots, languages, stats }
     core.api ++> [
         cli.commands.ask { copilot_stream },
-        cli.commands.review { live, pr_detail, start_review },
+        cli.commands.review { live, start_review },
     ]
     core.env ++> cli.commands.common { PROJECT_DIR }
     core.git.repo ++> [
@@ -51,7 +51,7 @@ graph import {
     core.site.shell.AppShell ++> pages.layout { RootLayout }
     core.wire ++> [
         cli.commands.ask { Card, CopilotFrame, LiveEvent, UiArgs },
-        cli.commands.review { LiveEvent, PRDetail, ReviewBrief },
+        cli.commands.review { LiveEvent, ReviewBrief },
     ]
 }
 

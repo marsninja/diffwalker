@@ -227,13 +227,43 @@ def AgentWalkthrough -> JsxElement {
         <div className="rounded-2xl border border-border bg-card/60 p-3 sm:p-4">
             <AgentLoopDiagram active={step} />
         </div>
-        <div className="flex items-center gap-2"><button type="button" onClick={lambda {
+        <div className="flex items-center gap-2">
+            <button
+                type="button"
+                onClick={lambda {
                     playing = False;
                     step = (step + len(AGENT_STEPS) - 1) % len(AGENT_STEPS);
-                }} className="rounded-md border border-border p-1.5 hover:bg-muted" aria-label="Previous step"><ChevronLeft className="size-4" /></button><button type="button" onClick={lambda { playing = not playing; }} className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs hover:bg-muted">{(<Pause className="size-3.5" />) if playing else (<Play className="size-3.5" />)}{"Pause" if playing else "Play"}</button><button type="button" onClick={lambda {
+                }}
+                className="rounded-md border border-border p-1.5 hover:bg-muted"
+                aria-label="Previous step"
+            ><ChevronLeft className="size-4" /></button>
+            <button
+                type="button"
+                onClick={lambda { playing = not playing; }}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs hover:bg-muted"
+            >
+                {(<Pause className="size-3.5" />) if playing else (<Play className="size-3.5" />)}
+                {"Pause" if playing else "Play"}
+            </button>
+            <button
+                type="button"
+                onClick={lambda {
                     playing = False;
                     step = (step + 1) % len(AGENT_STEPS);
-                }} className="rounded-md border border-border p-1.5 hover:bg-muted" aria-label="Next step"><ChevronRight className="size-4" /></button><div className="ml-2 h-1 flex-1 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary transition-all duration-500" style={{"width": str(round(100 * (step + 1) / len(AGENT_STEPS))) + "%"}}></div></div><span className="text-xs tabular text-muted-foreground">{str(step + 1) + " / " + str(len(AGENT_STEPS))}</span></div>
+                }}
+                className="rounded-md border border-border p-1.5 hover:bg-muted"
+                aria-label="Next step"
+            ><ChevronRight className="size-4" /></button>
+            <div className="ml-2 h-1 flex-1 overflow-hidden rounded-full bg-muted">
+                <div
+                    className="h-full rounded-full bg-primary transition-all duration-500"
+                    style={{"width": str(round(100 * (step + 1) / len(AGENT_STEPS))) + "%"}}
+                ></div>
+            </div>
+            <span className="text-xs tabular text-muted-foreground">
+                {str(step + 1) + " / " + str(len(AGENT_STEPS))}
+            </span>
+        </div>
         <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
             <div key={"a" + str(step)} className="fade-up">
                 <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-primary">

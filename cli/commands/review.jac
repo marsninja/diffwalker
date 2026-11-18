@@ -2,7 +2,7 @@
 its live stream."""
 import json;
 import threading;
-import from stdjac.remote { RemoteError, RemoteRejected, RemoteTimeout }
+import from stdjac.remote { RemoteError, RemoteRejected }
 
 glob STAGE_GLYPH: dict[str, str] = {"running": "◌", "done": "✓", "failed": "✗", "skipped": "–"};
 
@@ -140,19 +140,15 @@ def run_review_offline(repo: str, pr_id: str, focus: str, as_json: bool) -> int 
 """What became of the call that started a review on the server."""
 obj Started {
     has brief: ReviewBrief | None = None,
-        running: bool = False,
         error: str = "",
         rejected: bool = False;
 }
 
 """Start the review on the server and note how the call ended. The call returns when the
-review does, which can be after a call's time is up: the review then runs on, and the live
-stream says when it ends."""
+review does, however long that takes."""
 def start_on_server(pr_id: str, focus: str, session: str, started: Started) {
     try {
         started.brief = start_review(pr_id, focus, session);
-    } except RemoteTimeout {
-        started.running = True;
     } except RemoteError as e {
         started.error = str(e);
         started.rejected = isinstance(e, RemoteRejected);
@@ -178,7 +174,7 @@ def run_review_live(server: str, pr_id: str, focus: str) -> int {
                     print(dim("watching " + server + " · the browser shows the same run"));
                     continue;
                 }
-            } elif evt.kind == "ping" and not worker.is_alive() and not started.running {
+            } elif evt.kind == "ping" and not worker.is_alive() {
                 break;
             }
             if not show_event(evt, pr_id) {
@@ -196,14 +192,6 @@ def run_review_live(server: str, pr_id: str, focus: str) -> int {
         return EXIT_UNAVAILABLE if started.rejected else EXIT_USAGE;
     }
     brief = started.brief;
-    if brief is None and started.running {
-        try {
-            detail: PRDetail = pr_detail(pr_id, "");
-        } except RemoteError as e {
-            return unreachable(server, e);
-        }
-        brief = detail.history[0] if detail.history else None;
-    }
     if brief is None {
         brief = ReviewBrief();
     }
