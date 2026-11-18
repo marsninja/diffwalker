@@ -70,7 +70,7 @@ diffwalker needs the neojac features that [DOGFOOD.md](DOGFOOD.md) lists. Until 
 git clone https://github.com/marsninja/diffwalker
 cd diffwalker
 echo 'ANTHROPIC_API_KEY=sk-ant-...' > .env     # gitignored; read at startup
-neojac install                                  # npm packages for the site and the phone app
+neojac install                                  # npm packages for the site and the phone app; the Android SDK
 DIFFWALKER_REPO=/path/to/any/git/repo neojac run web
 ```
 
@@ -160,7 +160,13 @@ Charts, tables, and Mermaid diagrams that Copilot renders can be pinned. They ar
 
 `mobile/main.jac` is the entry of a React Native app written with the elements of `@jac/mobui` (`View`, `Text`, `Pressable`): sign in, inbox, review with the live pipeline and findings, insights, and its own Copilot, whose navigation moves the phone's tabs. It talks to the same server and the same graph, so resolving a finding on the phone updates the web review.
 
-`neojac build mobile` exports the app's Hermes bundles for Android and iOS to `dist/mobile`, and `neojac dev mobile` serves it to a device or an emulator through Expo. The server it calls is `[apps.mobile.remote] api` in `jac.toml`, baked into the bundle. The phone app builds, and has not been run on a device yet; the same component runs in the web app's "How it's built" page.
+`neojac build mobile` makes `dist/mobile/mobile.apk`, the app an Android phone installs, beside its Hermes bundles for Android and iOS. `neojac run mobile` installs it on the Android phone that is connected, or on an emulator it starts, and opens it. `neojac dev mobile` serves it to a device through Expo while you work on it.
+
+The Android SDK, a JDK and the emulator are fetched by `neojac install`, into neojac's own cache: `jac.toml`'s `[android]` table asks for them and says the project accepts the SDK's licenses. Remove the table to use the SDK `ANDROID_HOME` names instead. The first build takes a few minutes (Gradle fetches itself, the NDK and React Native's Android libraries); a build with nothing changed runs nothing.
+
+The server the app calls is `[apps.mobile.remote] api` in `jac.toml` (`http://127.0.0.1:8000`), baked into the app. `neojac run mobile` forwards that port from the phone to this machine, so with `neojac run web` running the phone app signs in to it as it is. The app's name and the identifier it is installed under are `[apps.mobile]`'s `name` and `identifier`. An iOS app needs macOS and Xcode (`expo run:ios` in the work directory) and has not been built.
+
+The same component runs in the web app's "How it's built" page. On a phone it keeps clear of the status bar and the navigation bar (`core/native/insets.hermes.jac`, with `react-native-safe-area-context`); in the page it has no bars to keep clear of (`core/native/insets.jac`).
 
 <p align="center"><img src="docs/screenshots/mobile.png" alt="Three mobile screens: the pull request inbox, a review with findings, and the Copilot tab" width="100%"/></p>
 
@@ -296,10 +302,11 @@ graph spaces local {
 | `neojac dev web` | The same, rebuilding on every save |
 | `neojac run desktop` | Builds the desktop app and opens its window |
 | `neojac run cli -- <args>` | Builds the CLI and runs it with `<args>` |
-| `neojac build mobile` | Exports the phone app's bundles to `dist/mobile` |
+| `neojac build mobile` | Builds the phone app: `dist/mobile/mobile.apk` and its bundles |
+| `neojac run mobile` | Builds it, installs it on a connected Android phone or an emulator, and opens it |
 | `neojac build` | Builds every app into `dist/`; `neojac build web cli` builds those two |
 
-The artifacts are `dist/web-<platform>/web` (with the site in `pages/site/` beside it), `dist/desktop-<platform>/desktop`, `dist/cli-<platform>`, and `dist/mobile/`. They need nothing installed where they run. A program started outside the project finds the project's `.env` through `DIFFWALKER_HOME`.
+The artifacts are `dist/web-<platform>/web` (with the site in `pages/site/` beside it), `dist/desktop-<platform>/desktop`, `dist/cli-<platform>`, and `dist/mobile/mobile.apk`. They need nothing installed where they run. A program started outside the project finds the project's `.env` through `DIFFWALKER_HOME`.
 
 ## Configuration
 
@@ -328,7 +335,7 @@ The server listens on `127.0.0.1` and is one process. It answers each call on a 
 | Path | Contents |
 |---|---|
 | `archwire.jac` | The spaces and the four apps (`graph spaces`), and every import between modules as a wire (`graph import`) |
-| `jac.toml` | Each app's deployment values, the model, the lint rules, and the npm packages of the site and the phone app (`[npm.web]`, `[npm.mobile]`) |
+| `jac.toml` | Each app's deployment values, the model, the lint rules, the npm packages of the site and the phone app (`[npm.web]`, `[npm.mobile]`), and what the phone app's Android build is made with (`[android]`) |
 | `core/api.jac` | Every endpoint (authenticated, plus a public `server_info`), including the two streams, `live` and `copilot_stream` |
 | `core/wire.jac` | The typed shapes that cross between the server and its callers: views, live events, Copilot frames |
 | `core/actions.jac` | Graph mutations shared by endpoints and Copilot tools |
@@ -369,7 +376,7 @@ diffwalker is written in the Jac that [neojac](https://github.com/marsninja/neoj
 - The desktop app's window exists for Linux only (GTK 3 with WebKitGTK 4.1).
 - A native caller gives a call 30 seconds, and `start_review` returns when the review ends. `review --live` treats the timeout as "still running" and follows the review on the live stream.
 
-What has been run: all four apps build. The web app, the CLI (in-process and `--live`) and the desktop app's two modes were run end to end against a scripted stand-in for the model API (`ANTHROPIC_BASE_URL`), driving the site in headless Chromium, and the web and desktop apps were stopped and started again on the data they kept. Against Anthropic's API (`claude-sonnet-5-5`), a full review ran from the server and from the command line, and the Copilot answered and drove the site, over the API and in its pane in headless Chromium. The phone app was built but not run on a device.
+What has been run: all four apps build. The web app, the CLI (in-process and `--live`) and the desktop app's two modes were run end to end against a scripted stand-in for the model API (`ANTHROPIC_BASE_URL`), driving the site in headless Chromium, and the web and desktop apps were stopped and started again on the data they kept. Against Anthropic's API (`claude-sonnet-5-5`), a full review ran from the server and from the command line, and the Copilot answered and drove the site, over the API and in its pane in headless Chromium. The phone app was installed on an Android emulator by `neojac run mobile` and used there against the same server and model: sign-in, the inbox, a review started from the phone with its stages arriving, its findings, insights, and a Copilot turn whose tool calls moved the phone's tabs.
 
 ## License
 

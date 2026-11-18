@@ -221,6 +221,16 @@ glob styles: any = StyleSheet.create({
         "borderWidth": 1,
         "borderColor": C.border,
     },
+    "field": {
+        "color": C.text,
+        "fontSize": 14,
+        "paddingVertical": 10,
+        "paddingHorizontal": S.md,
+        "backgroundColor": C.surface,
+        "borderRadius": R.pill,
+        "borderWidth": 1,
+        "borderColor": C.border,
+    },
     "sendBtn": {
         "width": 40,
         "height": 40,

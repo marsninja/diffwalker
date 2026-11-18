@@ -31,11 +31,22 @@ min_height = 680
 [apps.desktop.remote]
 api = "http://127.0.0.1:8000"
 
+# The phone app as Android installs it.
+[apps.mobile]
+name = "diffwalker"
+identifier = "dev.diffwalker.mobile"
+
 [apps.mobile.remote]
 api = "http://127.0.0.1:8000"
 
 [apps.cli.remote]
 api = "http://127.0.0.1:8000"
+
+# What `neojac install` fetches to build and run the phone app for Android: the SDK (under
+# Google's licenses, which this says the project accepts) and an emulator to run it on.
+[android]
+licenses = "accepted"
+emulator = true
 
 [llm]
 model = "claude-sonnet-5-5"
@@ -81,3 +92,4 @@ react = "19.1.0"
 react-native = "0.81.5"
 lucide-react-native = "^1.70.0"
 react-native-svg = "^15.13.0"
+react-native-safe-area-context = "~5.6.0"

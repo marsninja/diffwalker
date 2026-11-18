@@ -382,6 +382,7 @@ graph import core {
 
 graph import core.native {
     icon ++> DiffwalkerMobile { Icon }
+    insets ++> DiffwalkerMobile { bottom_inset, top_inset }
     theme ++> DiffwalkerMobile { C, R, S, risk_tone, sev_tone, styles, verdict_tone }
 }
 

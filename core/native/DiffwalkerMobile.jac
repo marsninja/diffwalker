@@ -658,7 +658,7 @@ def SignInScreen(onDone: Callable[[], None]) -> JsxElement {
                 placeholder="Username"
                 placeholderTextColor={C.muted}
                 autoCapitalize="none"
-                style={styles.input}
+                style={styles.field}
             />
             <TextInput
                 value={password}
@@ -666,7 +666,7 @@ def SignInScreen(onDone: Callable[[], None]) -> JsxElement {
                 placeholder="Password"
                 placeholderTextColor={C.muted}
                 secureTextEntry={True}
-                style={styles.input}
+                style={styles.field}
                 onSubmitEditing={lambda { go() }}
             />
             {
@@ -839,7 +839,7 @@ def DiffwalkerMobile(embedded: bool = False) -> JsxElement {
     title = (TABS[[t.key for t in TABS].index(tab)].label) if tab in [t.key for t in TABS] else "";
     return <View
         testID="diffwalker-mobile"
-        style={[styles.root, {"height": "100%" if embedded else viewport.height, "paddingTop": 26 if embedded else 0}]}
+        style={[styles.root, {"height": "100%" if embedded else viewport.height, "paddingTop": 26 if embedded else top_inset(), "paddingBottom": 0 if embedded else bottom_inset()}]}
     >
         <View style={styles.header}>
             <View style={styles.brandMark}>
