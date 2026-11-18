@@ -2,7 +2,7 @@
 reviewer whose methods are their tools."""
 import from stdjac.llm { llm }
 
-enum Severity {
+enum Severity: str {
     CRITICAL = "critical",
     HIGH = "high",
     MEDIUM = "medium",
@@ -16,7 +16,7 @@ sem Severity.MEDIUM = "A defect or design problem worth fixing; reasonable peopl
 sem Severity.LOW = "Minor issue: small inefficiency, unclear naming, missing edge-case handling.";
 sem Severity.INFO = "Observation or nit; no action required.";
 
-enum Category {
+enum Category: str {
     CORRECTNESS = "correctness",
     SECURITY = "security",
     PERFORMANCE = "performance",
@@ -27,7 +27,7 @@ enum Category {
     STYLE = "style",
 }
 
-enum VerdictKind {
+enum VerdictKind: str {
     APPROVE = "approve",
     COMMENT = "comment",
     REQUEST_CHANGES = "request_changes",

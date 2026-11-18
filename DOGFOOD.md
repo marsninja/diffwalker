@@ -38,7 +38,8 @@ bars.
 ## Found and fixed in neojac
 
 Each row is something diffwalker needed that neojac refused, lacked or got
-wrong, and what neojac does now. The fixes are in neojac 0.3.0.
+wrong, and what neojac does now. The fixes are in neojac 0.3.0, but for the
+str-typed enum, which is in the release after it.
 
 | Found | What failed | What neojac does now | Where diffwalker uses it |
 | --- | --- | --- | --- |
@@ -77,18 +78,11 @@ wrong, and what neojac does now. The fixes are in neojac 0.3.0.
 | The exception being handled | `logging`'s `Logger.exception` raised `NotImplementedError` in a native program (there was no `sys.exception()`), from inside the `except` clause that was reporting a failed Copilot turn, so the real error was never seen. | `sys.exception()` and `sys.exc_info()` give the exception a thread is handling, and `Logger.exception` logs it with its traceback. | `_turn` in `core/api.jac` logs a failed turn with `.exception(...)`. |
 | A wire that only a crossing's signature uses | A type a crossing's signature names must be wired into the calling module (E1182), and the wire was then reported unused (E1146) unless the module spelled the type somewhere, so callers wrote annotations they did not need. | A type named by the signature of a crossing the module calls is a use of its wire. The wire itself is still asked for: it is what puts the type in the caller's program. | The `wire ++> [...]` block of `archwire.jac` stays; no module needs an annotation to keep a wire. |
 | A crossing's type from another module of the endpoint's space | A class wired from a module placed in the endpoint's space, other than the endpoint's own, got E1182 asking for a wire the archwire already had, and a result class with a field of such a type was E1308 ("not sendable"). The caller sees both modules through their interfaces, and what one interface imports from another was never bound, so the signature's type did not resolve. | The types one interface module takes from another are bound, so such a type crosses, with the types of its fields. | Seen while the views were declared in `core/api.jac`. Every type that crosses is in `core/wire.jac` now, a module no space holds, which is the better place for them. |
+| A str-typed enum | `enum Severity: str` was E5090, so `Severity`, `Category` and `VerdictKind` were plain enums, and the engine read `.value` wherever it needed the string. | A member of `enum X: str` is the str it is: it prints as its value and is used where a str is, and it is still its enum's member, with a name, found by its value. | `Severity`, `Category` and `VerdictKind` in `core/review/agents.jac`; `ReviewRun` in `core/review/engine.jac` keeps a finding's severity and category, and writes the verdict, as they are. |
 
 ## Open
 
-Each of these is a defect or gap in neojac that still shows in diffwalker,
-either as code left in its natural form or as code written around it. None has
-its fix yet.
-
-### The language and the library
-
-| Defect or gap | Where it shows in diffwalker |
-| --- | --- |
-| An enum cannot name its values' type (`enum Severity: str` is E5090). | `Severity`, `Category` and `VerdictKind` in `core/review/agents.jac` are plain enums, and the engine reads `.value` where it needs the string. |
+Nothing found so far is open.
 
 One thing first listed here is the language as designed, and is now in neojac's
 documentation: `Number.isNaN(x)` is E1030 because `Number` is Jac's interface of

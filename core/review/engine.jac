@@ -179,8 +179,8 @@ def _draft_from(d: DraftFinding, path: str, source: str) -> Draft {
         path=(d.path or path).strip().lstrip("./"),
         line=max(0, d.line),
         end_line=max(d.line, d.end_line),
-        severity=d.severity.value,
-        category=d.category.value,
+        severity=d.severity,
+        category=d.category,
         title=d.title[:140],
         body=d.body,
         suggestion=d.suggestion,
@@ -879,7 +879,7 @@ walker:priv ReviewRun {
                 }
                 if v.keep {
                     d.verified = True;
-                    d.severity = v.severity.value;
+                    d.severity = v.severity;
                     d.note = v.reason;
                     survivors.append(d);
                 } else {
@@ -938,7 +938,7 @@ walker:priv ReviewRun {
                 self.feed(rv, "warn", "Synthesizer failed", str(e)[:200]);
             }
         }
-        written = summary.verdict.value;
+        written = summary.verdict;
         risk = int(max(0, min(100, summary.risk)));
         if any([d.severity == "critical" for d in self.drafts]) {
             risk = max(risk, 80);

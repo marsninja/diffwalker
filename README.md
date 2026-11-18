@@ -64,7 +64,7 @@ Install neojac (Linux x86_64 or arm64, macOS on Apple Silicon):
 curl -fsSL https://github.com/jaseci-labs/neojac-releases/releases/latest/download/install.sh | bash
 ```
 
-diffwalker needs neojac 0.3.0 or later: the release that has the features [DOGFOOD.md](DOGFOOD.md) lists.
+diffwalker needs the neojac release after 0.3.0: the first that has every feature [DOGFOOD.md](DOGFOOD.md) lists (0.3.0 lacks the str-typed enum).
 
 ```bash
 git clone https://github.com/marsninja/diffwalker
