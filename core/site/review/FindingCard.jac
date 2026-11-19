@@ -93,14 +93,15 @@ def:pub FindingCard(
             >{cur.title}</div>
             {
                 if not inline {
-                    <button type="button" onClick={lambda {
+                    <button
+                        type="button"
+                        onClick={lambda {
                             if onJump {
                                 onJump(cur);
                             }
-                        }} className="mt-0.5 inline-flex items-center gap-1 font-mono text-[11px] text-primary hover:underline">
-                        <FileCode2 className="size-3" />
-                        {cur.path + ":" + str(cur.line)}
-                    </button>
+                        }}
+                        className="mt-0.5 inline-flex items-center gap-1 font-mono text-[11px] text-primary hover:underline"
+                    ><FileCode2 className="size-3" />{cur.path + ":" + str(cur.line)}</button>
                 }
             }
             <Markdown text={cur.body} className="mt-1 text-[13px] text-muted-foreground" />

@@ -545,10 +545,15 @@ def:pub Insights -> JsxElement {
         <div className="flex flex-wrap gap-0.5 rounded-xl bg-muted p-1">
             {
                 for v in VIEWS {
-                    <ViewTab key={v.key} item={v} active={view == v.key} onPick={lambda (k: str) {
+                    <ViewTab
+                        key={v.key}
+                        item={v}
+                        active={view == v.key}
+                        onPick={lambda (k: str) {
                             view = k;
                             nav("/insights?view=" + k, {"replace": True});
-                        }} />
+                        }}
+                    />
                 }
             }
         </div>

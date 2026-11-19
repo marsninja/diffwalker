@@ -104,10 +104,14 @@ def:pub SignIn -> JsxElement {
                         {"Create account" if mode == "signup" else "Sign in"}
                     </button>
                 </form>
-                <button type="button" onClick={lambda {
+                <button
+                    type="button"
+                    onClick={lambda {
                         mode = "signin" if mode == "signup" else "signup";
                         error = "";
-                    }} className="mt-4 w-full text-center text-xs text-muted-foreground hover:text-foreground">
+                    }}
+                    className="mt-4 w-full text-center text-xs text-muted-foreground hover:text-foreground"
+                >
                     {"Already have an account? Sign in"
                         if mode == "signup"
                         else "New here? Create an account"}
