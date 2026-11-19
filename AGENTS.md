@@ -7,11 +7,15 @@ four apps (`web`, `desktop`, `mobile`, `cli`) over one shared `core/`.
 
 ## Where things live
 
-- **Spaces, apps and imports** are in `archwire.jac`. `graph spaces` declares
-  the spaces (`site`, `phone`, `api`, `cli`) and the apps made of them.
-  `graph import` holds every import between modules as a wire: modules write
-  no imports of each other, so a new use of another module's name is a new
-  name in a wire.
+- **Layers, spaces, apps and imports** are in `archwire.jac`. `graph layers`
+  puts every module in one layer: what the apps share (`wire`, `repos`,
+  `state`, `analysis`, `actions`, `api`, from the bottom up) and each app's own
+  (`site`, `phone`, `cli`). A new module goes in a layer, and a wire between
+  two layers needs the edge rule that admits it, so a layer never takes from
+  one above it. `graph spaces` declares the spaces (`site`, `phone`, `api`,
+  `cli`) and the apps made of them. `graph import` holds every import between
+  modules as a wire: modules write no imports of each other, so a new use of
+  another module's name is a new name in a wire.
 - **Endpoints** are in `core/api.jac`, the only module of the `api` space.
   Each is `def:protect` and runs on its caller's own root; `server_info` is the
   one `def:pub`. An endpoint that returns `Iterator[T]` is a stream (`live`,

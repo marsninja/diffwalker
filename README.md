@@ -295,6 +295,7 @@ graph spaces local {
 - A call across spaces, such as a page's `await pr_detail(id)`, is an ordinary typed call that the compiler sends to the server. What crosses is declared in `core/wire.jac`.
 - An endpoint whose result is an `Iterator[T]` is a stream: `live` and `copilot_stream` are the two. A page reads one with `async for`, the CLI with `for`.
 - Modules write no imports of each other. Every import is a wire in the archwire's `graph import` blocks.
+- `graph layers` puts every module in one layer. What the apps share is a stack, `wire`, `repos`, `state`, `analysis`, `actions` and `api` from the bottom up, and each app's own modules are a layer of their own: `site`, `phone`, `cli`. A wire between two layers needs an edge rule that admits it, and layers never take from each other in a cycle, so nothing in the stack reaches up. `neojac arch` draws the layers and the wires between them.
 
 | Command | Does |
 |---|---|
@@ -334,7 +335,7 @@ The server listens on `127.0.0.1` and is one process. It answers each call on a 
 
 | Path | Contents |
 |---|---|
-| `archwire.jac` | The spaces and the four apps (`graph spaces`), and every import between modules as a wire (`graph import`) |
+| `archwire.jac` | The layers every module is in (`graph layers`), the spaces and the four apps (`graph spaces`), and every import between modules as a wire (`graph import`) |
 | `jac.toml` | Each app's deployment values, the model, the lint rules, the npm packages of the site and the phone app (`[npm.web]`, `[npm.mobile]`), and what the phone app's Android build is made with (`[android]`) |
 | `core/api.jac` | Every endpoint (authenticated, plus a public `server_info`), including the two streams, `live` and `copilot_stream` |
 | `core/wire.jac` | The typed shapes that cross between the server and its callers: views, live events, Copilot frames |

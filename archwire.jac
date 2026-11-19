@@ -1,3 +1,38 @@
+graph layers {
+    """What every app shares: the types that cross, git, the graph, the review, the Copilot, the endpoints."""
+    layer shared {
+        """The types that cross between the server and its callers."""
+        layer wire { core.wire; }
+
+        """The project's own settings, and the repositories git and gh read."""
+        layer repos { core.env | core.git.*; }
+
+        """Each user's graph, and the live events that tell their screens it changed."""
+        layer state { core.graph | core.live; }
+
+        """What diffwalker works out: a repository's history, the review pipeline, a review's export."""
+        layer analysis { core.analytics | core.export | core.review.*; }
+
+        """What changes a user's graph: the actions a button and the Copilot share, and the Copilot."""
+        layer actions { core.actions | core.agent.*; }
+
+        """Every endpoint the server answers."""
+        layer api { core.api; }
+    }
+
+    """Each app's own modules."""
+    layer apps {
+        """The site: its pages, their components, and the browser entry."""
+        layer site { web | pages.* | core.site.* | core.utils; }
+
+        """The phone app: its entry and its component."""
+        layer phone { mobile.* | core.native.*; }
+
+        """The command-line app."""
+        layer cli { cli.*; }
+    }
+}
+
 graph spaces {
     space site: browser { entry web; pages.* | core.site.*; }
     space phone: hermes { entry mobile.main; }
@@ -15,7 +50,22 @@ graph spaces local {
 }
 
 graph import {
-    edge Core: core.* --> cli.* | mobile.* | pages.* | web;
+    """The apps are made from what they share."""
+    edge Shared: shared --> apps;
+    """Everything names the types that cross."""
+    edge Wire: wire --> repos | state | analysis | actions | api | site | phone | cli;
+    """Git and the project's settings feed the analysis, the actions, the server and the command line."""
+    edge Repos: repos --> analysis | actions | api | cli;
+    """The graph and its live events are read and written above them."""
+    edge State: state --> analysis | actions | api | cli;
+    """The analysis is what the actions, the server and the command line report."""
+    edge Analysis: analysis --> actions | api | cli;
+    """The server and the command line act through the actions and the Copilot."""
+    edge Actions: actions --> api | cli;
+    """Each app calls the server's endpoints."""
+    edge Endpoints: api --> site | phone | cli;
+    """The site's "How it's built" page embeds the phone app."""
+    edge Embedded: phone --> site;
 
     core.agent.copilot ++> cli.commands.ask { AgentCtx, copilot, set_agent }
     core.analytics ++> cli.commands.browse { contributors, hotspots, languages, stats }
