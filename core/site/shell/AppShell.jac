@@ -123,11 +123,15 @@ def:pub handle_ui_action(action: str, args: UiArgs, nav: Callable[[str], None], 
 
 def NavItem(item: NavEntry, active: bool, onPick: Callable[[], None] | None = None) -> JsxElement {
     Icon = item.icon;
-    return <Link to={item.to} onClick={lambda {
+    return <Link
+        to={item.to}
+        onClick={lambda {
             if onPick {
                 onPick();
             }
-        }} className={"group flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors " + ("bg-primary/12 text-foreground font-medium" if active else "text-muted-foreground hover:bg-muted hover:text-foreground")}>
+        }}
+        className={"group flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors " + ("bg-primary/12 text-foreground font-medium" if active else "text-muted-foreground hover:bg-muted hover:text-foreground")}
+    >
         <span
             className={"grid size-6 place-items-center rounded-md " + ("bg-primary text-primary-foreground" if active else "bg-muted/60 text-muted-foreground group-hover:text-foreground")}
         ><Icon className="size-3.5" /></span>
@@ -231,10 +235,14 @@ def RepoSwitcher(ws: WorkspaceView | None) -> JsxElement {
     }
     repo = ws.repo if ws else None;
     return <div className="relative">
-        <button type="button" onClick={lambda {
+        <button
+            type="button"
+            onClick={lambda {
                 open = not open;
                 path = repo.path if repo else "";
-            }} className="flex max-w-[52vw] items-center gap-2 rounded-lg border border-border bg-card/70 px-2.5 py-1.5 text-left text-sm hover:bg-muted md:max-w-[420px]">
+            }}
+            className="flex max-w-[52vw] items-center gap-2 rounded-lg border border-border bg-card/70 px-2.5 py-1.5 text-left text-sm hover:bg-muted md:max-w-[420px]"
+        >
             <FolderGit2 className="size-4 shrink-0 text-primary" />
             <span className="truncate font-medium">{repo.name if repo else "…"}</span>
             {
@@ -532,10 +540,14 @@ def ExportDialog -> JsxElement {
                         Markdown
                     </button>
                 </div>
-                <button type="button" onClick={lambda {
+                <button
+                    type="button"
+                    onClick={lambda {
                         navigator.clipboard.writeText(md);
                         copied = True;
-                    }} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground">
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground"
+                >
                     {(<Check className="size-3.5" />)
                         if copied
                         else (<Copy className="size-3.5" />)}

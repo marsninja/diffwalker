@@ -38,8 +38,7 @@ bars.
 ## Found and fixed in neojac
 
 Each row is something diffwalker needed that neojac refused, lacked or got
-wrong, and what neojac does now. The fixes are in neojac 0.3.0, but for the
-str-typed enum, which is in the release after it.
+wrong, and what neojac does now. The fixes are in neojac 0.3.1.
 
 | Found | What failed | What neojac does now | Where diffwalker uses it |
 | --- | --- | --- | --- |
