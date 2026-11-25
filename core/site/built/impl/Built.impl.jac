@@ -368,7 +368,7 @@ impl Built -> JsxElement {
                 <PhoneFrame><DiffwalkerMobile embedded={True} /></PhoneFrame>
                 <div className="min-w-0 space-y-5">
                     <CodeSpotlight
-                        path="core/site/built/Built.jac"
+                        path="core/site/built/impl/Built.impl.jac"
                         needle="<DiffwalkerMobile embedded={True} />"
                         before={2}
                         after={3}
@@ -392,7 +392,7 @@ impl Built -> JsxElement {
                         </li>
                     </ul>
                     <CodeSpotlight
-                        path="core/native/DiffwalkerMobile.jac"
+                        path="core/native/impl/DiffwalkerMobile.impl.jac"
                         needle="async def ask("
                         before={0}
                         after={22}

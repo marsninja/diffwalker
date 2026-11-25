@@ -79,7 +79,7 @@ glob PIPELINE_STEPS: list[PipelineStep] = [
      AGENT_STEPS: list[AgentStep] = [
          AgentStep(
              text="The pane calls copilot_stream with the message and what you are looking at (page, pull request, filters), as the signed-in user, and reads the frames it yields with async for.",
-             path="core/site/copilot/CopilotPane.jac",
+             path="core/site/copilot/impl/CopilotPane.impl.jac",
              needle="async for frame in copilot_stream(",
          ),
          AgentStep(
@@ -129,7 +129,7 @@ glob PIPELINE_STEPS: list[PipelineStep] = [
          ),
          AgentStep(
              text="When the model stops calling tools the answer streams; the conversation, a list of Message, is kept on the ChatThread node, and a turn is given latest_turns of it: the most recent whole turns that fit.",
-             path="core/api.jac",
+             path="core/impl/api.impl.jac",
              needle="t.history = history;",
          ),
      ],
