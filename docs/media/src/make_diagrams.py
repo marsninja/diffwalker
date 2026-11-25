@@ -324,7 +324,7 @@ def arch():
     b.append(text(883, 440, "git", "m", 10.5, anchor="middle", fill=INK2, extra=f'stroke="{BG}" stroke-width="6" paint-order="stroke"'))
     b.append(line("M564,448 L598,448", MUTED, "a"))
     b.append(line("M720,300 L720,324", MUTED, "a"))
-    b.append(text(34, H - 22, "Imports between modules are declared once in archwire.jac; every endpoint is def:protect, so each account works in its own graph.", "s", 12))
+    b.append(text(34, H - 22, "Imports between modules are declared once in archwire.jac; every endpoint is def:prot, so each account works in its own graph.", "s", 12))
     return svg(W, H, "".join(b), "Architecture: web, mobile and CLI clients call core/api.jac through typed RPC; the server's copilot and review engine call the LLM provider, commit to the graph store, and read the local repo via git and gh.")
 
 
