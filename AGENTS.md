@@ -17,7 +17,7 @@ four apps (`web`, `desktop`, `mobile`, `cli`) over one shared `core/`.
   modules as a wire: modules write no imports of each other, so a new use of
   another module's name is a new name in a wire.
 - **Endpoints** are in `core/api.jac`, the only module of the `api` space.
-  Each is `def:protect` and runs on its caller's own root; `server_info` is the
+  Each is `def:prot` and runs on its caller's own root; `server_info` is the
   one `def:pub`. An endpoint that returns `Iterator[T]` is a stream (`live`,
   `copilot_stream`).
 - **Types that cross** between the server and its callers are in

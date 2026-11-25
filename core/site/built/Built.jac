@@ -85,7 +85,7 @@ glob PIPELINE_STEPS: list[PipelineStep] = [
          AgentStep(
              text="The endpoint returns an Iterator[CopilotFrame], which makes it a stream: the server sends each frame as it is yielded. The turn runs on one thread as its caller, so tools read and write the caller's own graph directly.",
              path="core/api.jac",
-             needle="def:protect copilot_stream",
+             needle="def:prot copilot_stream",
          ),
          AgentStep(
              text="copilot() has no body. by llm(tools=TOOLS, conversation=history, system_prompt=SYSTEM) builds the request from sem strings and the tool signatures, and its Iterator[ByEvent] result makes the call a streamed one.",
@@ -147,7 +147,7 @@ glob PIPELINE_STEPS: list[PipelineStep] = [
              "Review → FileChange → Finding/CodeRef; an id lookup is one edge-reference query from the caller's root.",
          ],
          [
-             "def:protect endpoints",
+             "def:prot endpoints",
              "Every endpoint runs on the caller's own root: per-user reviews and chats with no user-id plumbing. One that returns an Iterator is a stream.",
          ],
          [

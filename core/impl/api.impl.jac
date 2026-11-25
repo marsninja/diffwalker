@@ -573,7 +573,7 @@ impl build_stats -> BuildStats {
             out.jac_files += 1;
             out.jac_lines += n;
             if rel.startswith(os.path.join("core", "api")) {
-                out.endpoints += text.count("def:protect ") + text.count("def:pub ");
+                out.endpoints += text.count("def:prot ") + text.count("def:pub ");
             }
             out.llm_functions += text.count(" by llm(") + text.count("by llm(\n");
             for l in text.split("\n") {

@@ -187,7 +187,7 @@ impl Built -> JsxElement {
                         <StatTile
                             label="Endpoints"
                             value={str(stats.endpoints)}
-                            hint="def:protect functions, called as typed functions"
+                            hint="def:prot functions, called as typed functions"
                         />
                         <StatTile
                             label="LLM functions"
