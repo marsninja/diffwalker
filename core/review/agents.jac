@@ -1,5 +1,3 @@
-"""The model calls of a review: what each is asked, the shapes it answers in, and the
-reviewer, whose methods are the calls that read the repository and their tools."""
 import from jaclang.comptime { reads }
 
 enum Severity: str {
@@ -152,12 +150,6 @@ sem ReviewSummary.highlights = "Up to three things the change does well.";
 sem ReviewSummary.concerns = "Up to four most important concerns, most severe first.";
 sem ReviewSummary.suggested_tests = "Up to four specific test cases worth adding.";
 
-"""One specialist reviewer bound to the pull request's version of the repository.
-
-Its fields are the context every review call sees, and its methods are the calls
-and their tools: a call is given the reviewer as `self`, and a tool is called on it,
-so a reviewer runs in a `flow` task with nothing ambient to inherit.
-"""
 obj Reviewer {
     has repo: str,
         ref: str,
@@ -166,32 +158,13 @@ obj Reviewer {
         focus: str = "";
 
     @reads
-    def read_file(path: str, start_line: int, end_line: int) -> str {
-        text = read_text(self.repo, path, self.ref);
-        if not text {
-            return f"(no file {path} at {self.ref})";
-        }
-        lines = text.split("\n");
-        a = max(1, start_line);
-        b = min(len(lines), max(a, end_line), a + 200);
-        return f"{path} ({len(lines)} lines)\n"
-            + "\n".join([f"{i}: {lines[i - 1]}" for i in range(a, b + 1)]);
-    }
+    def read_file(path: str, start_line: int, end_line: int) -> str;
 
     @reads
-    def search_code(regex: str, path_glob: str) -> str {
-        rows = grep(self.repo, regex, path_glob, 40, self.ref);
-        return "\n".join(rows) if rows else "(no matches)";
-    }
+    def search_code(regex: str, path_glob: str) -> str;
 
     @reads
-    def file_history(path: str) -> str {
-        return "\n".join([
-            f"{c.sha} {c.author}: {c.subject}"
-            for c in file_log(self.repo, path, 10)
-        ])
-            or "(no history)";
-    }
+    def file_history(path: str) -> str;
 
     def review_file(
         path: str, lenses: list[str], patch: str, signals: list[str]

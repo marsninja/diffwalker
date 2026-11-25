@@ -1,13 +1,3 @@
-"""The graph a user's root holds: their workspace, repositories, pull requests, reviews and
-chat threads, and the queries over it.
-
-    Root --HasRepo--> Repo --HasPR--> PullRequest --HasReview--> Review
-    Review --Covers--> FileChange --Raised--> Finding
-    FileChange --CalledFrom/TestedBy/ChangesWith--> CodeRef
-    Repo --Pinned--> Insight        Root --Talked--> ChatThread
-
-`Finding` and `Insight` are declared in `core.wire`, since the front ends are sent them.
-"""
 import threading;
 import time;
 import uuid;
@@ -139,8 +129,6 @@ edge Pinned: Repo --> Insight {}
 
 edge Talked: Root --> ChatThread {}
 
-"""The server answers a user's calls at once: `_making` is held while a node that should be
-there once (a workspace, a repository, a pull request, a chat thread) is looked for and made."""
 glob _making: threading.Lock = threading.Lock(),
      SEVERITIES: list[str] = ["critical", "high", "medium", "low", "info"],
      CATEGORIES: list[str] = [
@@ -154,48 +142,16 @@ glob _making: threading.Lock = threading.Lock(),
          "style",
      ];
 
-def new_id(prefix: str) -> str {
-    return prefix + "-" + uuid.uuid4().hex[:8];
-}
+def new_id(prefix: str) -> str;
 
-def now -> float {
-    return time.time();
-}
+def now -> float;
+def workspace -> Workspace;
 
-"""The caller's workspace: active repository and recent ones, one per user root."""
-def workspace -> Workspace {
-    with _making {
-        found = [root --> [?:Workspace]];
-        if found {
-            return found[0];
-        }
-        ws = Workspace();
-        root ++> ws;
-        return ws;
-    }
-}
+def repo_node(repo_path: str) -> Repo | None;
 
-def repo_node(repo_path: str) -> Repo | None {
-    found = [root ->:HasRepo:->][?:Repo, path == repo_path];
-    return found[0] if found else None;
-}
+def ensure_repo(path: str, name: str) -> Repo;
 
-def ensure_repo(path: str, name: str) -> Repo {
-    with _making {
-        r = repo_node(path);
-        if r is not None {
-            return r;
-        }
-        fresh = Repo(path=path, name=name, added_at=now());
-        root +>:HasRepo:+> fresh;
-        return fresh;
-    }
-}
-
-def pr_node(repo: Repo, pr_id: str) -> PullRequest | None {
-    found = [repo ->:HasPR:->][?:PullRequest, id == pr_id];
-    return found[0] if found else None;
-}
+def pr_node(repo: Repo, pr_id: str) -> PullRequest | None;
 
 def ensure_pr(
     repo: Repo,
@@ -207,144 +163,46 @@ def ensure_pr(
     author: str,
     url: str,
     number: int,
-) -> PullRequest {
-    with _making {
-        found = pr_node(repo, pr_id);
-        p = found if found is not None else PullRequest(id=pr_id);
-        if found is None {
-            repo +>:HasPR:+> p;
-        }
-    }
-    p.kind = kind;
-    p.title = title or p.title;
-    p.head = head or p.head;
-    p.base = base or p.base;
-    p.author = author or p.author;
-    p.url = url or p.url;
-    p.number = number or p.number;
-    return p;
-}
+) -> PullRequest;
 
-def pr_reviews(pr: PullRequest) -> list[Review] {
-    reviews = [pr ->:HasReview:->][?:Review];
-    return sorted(reviews, key=lambda (r: Review) -> float { return 0 - r.started; });
-}
+def pr_reviews(pr: PullRequest) -> list[Review];
 
-def review_files(review: Review) -> list[FileChange] {
-    files = [review ->:Covers:->][?:FileChange];
-    return sorted(files, key=lambda (f: FileChange) -> int { return 0 - f.risk; });
-}
+def review_files(review: Review) -> list[FileChange];
+def review_findings(review: Review) -> list[Finding];
 
-"""Every finding of a review, two hops away: Review -> FileChange -> Finding."""
-def review_findings(review: Review) -> list[Finding] {
-    return [review ->:Covers:-> ->:Raised:->][?:Finding];
-}
+def file_change(review: Review, file_path: str) -> FileChange | None;
 
-def file_change(review: Review, file_path: str) -> FileChange | None {
-    found = [review ->:Covers:->][?:FileChange, path == file_path];
-    return found[0] if found else None;
-}
+def review_of(pr: PullRequest, status: str = "done") -> Review | None;
+def find_review(review_id: str) -> Review | None;
 
-def review_of(pr: PullRequest, status: str = "done") -> Review | None {
-    for rv in pr_reviews(pr) {
-        if not status or rv.status == status {
-            return rv;
-        }
-    }
-    return None;
-}
+def find_finding(finding_id: str) -> Finding | None;
 
-"""Look a review up by id under the caller's own root; one query, never another user's."""
-def find_review(review_id: str) -> Review | None {
-    found = [root ->:HasRepo:-> ->:HasPR:-> ->:HasReview:->][?:Review, id == review_id];
-    return found[0] if found else None;
-}
+def review_pr(review: Review) -> PullRequest | None;
 
-def find_finding(finding_id: str) -> Finding | None {
-    found = [root ->:HasRepo:-> ->:HasPR:-> ->:HasReview:-> ->:Covers:-> ->:Raised:->][?:Finding, id
-        == finding_id];
-    return found[0] if found else None;
-}
+def finding_review(f: Finding) -> Review | None;
 
-def review_pr(review: Review) -> PullRequest | None {
-    found = [review <-:HasReview:<-][?:PullRequest];
-    return found[0] if found else None;
-}
+def repo_insights(repo: Repo) -> list[Insight];
 
-def finding_review(f: Finding) -> Review | None {
-    found = [f <-:Raised:<- <-:Covers:<-][?:Review];
-    return found[0] if found else None;
-}
+def chat_thread(thread_id: str) -> ChatThread;
 
-def repo_insights(repo: Repo) -> list[Insight] {
-    found = [repo ->:Pinned:->][?:Insight];
-    return sorted(found, key=lambda (i: Insight) -> float { return 0 - i.created; });
-}
+def refresh_pr_rollup(pr: PullRequest);
 
-def chat_thread(thread_id: str) -> ChatThread {
-    with _making {
-        found = [root ->:Talked:->][?:ChatThread, id == thread_id];
-        if found {
-            return found[0];
-        }
-        t = ChatThread(id=thread_id, created=now(), updated=now());
-        root +>:Talked:+> t;
-        return t;
-    }
-}
+def touch_rollup(f: Finding);
 
-def refresh_pr_rollup(pr: PullRequest) {
-    latest = review_of(pr, "done");
-    if latest is None {
-        return;
-    }
-    pr.last_review = latest.id;
-    pr.verdict = latest.verdict;
-    pr.risk = latest.risk;
-    pr.open_findings = len([f for f in review_findings(latest) if f.status == "open"]);
-}
-
-def touch_rollup(f: Finding) {
-    rv = finding_review(f);
-    if rv {
-        pr = review_pr(rv);
-        if pr {
-            refresh_pr_rollup(pr);
-        }
-    }
-}
-
-"""Collect findings across a repository's pull requests, newest finished review of each."""
 walker:priv CollectFindings {
     has status: str = "",
         latest_only: bool = True,
         found: list[Finding] = [];
 
-    can at_repo with Repo entry {
-        visit [here ->:HasPR:->];
-    }
+    can at_repo with Repo entry;
 
-    can at_pr with PullRequest entry {
-        done = [rv for rv in pr_reviews(here) if rv.status == "done"];
-        visit done[:1] if self.latest_only else done;
-    }
+    can at_pr with PullRequest entry;
 
-    can at_review with Review entry {
-        visit [here ->:Covers:->];
-    }
+    can at_review with Review entry;
 
-    can at_file with FileChange entry {
-        visit [here ->:Raised:->];
-    }
+    can at_file with FileChange entry;
 
-    can at_finding with Finding entry {
-        if not self.status or here.status == self.status {
-            self.found.append(here);
-        }
-    }
+    can at_finding with Finding entry;
 }
 
-def repo_findings(repo: Repo, status: str = "", latest_only: bool = True) -> list[Finding] {
-    w = repo spawn CollectFindings(status=status, latest_only=latest_only);
-    return w.found;
-}
+def repo_findings(repo: Repo, status: str = "", latest_only: bool = True) -> list[Finding];

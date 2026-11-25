@@ -50,7 +50,4 @@ glob LUCIDE: dict[str, any] = {
     "failed": X,
 };
 
-def Icon(name: str, size: int, color: str) -> JsxElement {
-    Glyph = LUCIDE.get(name, LUCIDE["pending"]);
-    return <Glyph size={size} color={color} strokeWidth={2} />;
-}
+def Icon(name: str, size: int, color: str) -> JsxElement;
