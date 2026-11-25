@@ -1,9 +1,3 @@
-"""The types that cross between diffwalker's server and its front ends.
-
-No space holds this module, so the server (`core.api`), the site and the phone app each
-compile it in and name the same classes: what an endpoint returns, what the `live` stream
-yields and what a Copilot turn streams.
-"""
 obj RepoInfo {
     has path: str = "",
         name: str = "",
@@ -414,8 +408,6 @@ obj BuildStats {
         walkers: int = 0;
 }
 
-"""A chart, table or diagram Copilot rendered: an `Insight` before it is pinned. `spec`
-is JSON text whose shape depends on `kind`."""
 obj Card {
     has id: str = "",
         title: str = "",
@@ -426,10 +418,6 @@ obj Card {
         created: float = 0.0;
 }
 
-"""The arguments of a UI command. Each action reads its own: `navigate` reads `to`, `tab`,
-`file`, `line` and `view`; `filter` reads `severity`, `category` and `status`; `toast`
-reads `message` and `tone`; `repo` reads `path`; `export` reads `pr_id` and `markdown`;
-`confirm_publish` reads `pr_id`, `number` and `url`."""
 obj UiArgs {
     has to: str = "",
         tab: str = "",
@@ -448,13 +436,11 @@ obj UiArgs {
         url: str = "";
 }
 
-"""Something Copilot asks a screen to do."""
 obj UiCommand {
     has action: str = "",
         args: UiArgs = UiArgs();
 }
 
-"""A finding a reviewer drafted, before verification."""
 obj DraftNote {
     has id: str = "",
         path: str = "",
@@ -467,13 +453,6 @@ obj DraftNote {
         confidence: float = 0.0;
 }
 
-"""What a live event says, by the event's `kind`.
-
-`ui`: `action` and `args`. `data`: `what` changed (`finding`, `reviewing`, `insight`,
-`repo`, `published`), with `pr_id`, `id`, `path` or `url`. `review`: `phase` (`start`,
-`stage`, `triage`, `file`, `drafts`, `drop`, `warn`, `info`, `investigate`, `done`,
-`failed`) of the review `review_id` of `pr_id`, and that phase's fields. `findings` is a
-count: a file's drafts in `file`, the findings that survived in `done`."""
 obj LiveData {
     has action: str = "",
         args: UiArgs = UiArgs(),
@@ -501,9 +480,6 @@ obj LiveData {
         error: str = "";
 }
 
-"""One event of the `live` stream. `kind` is `hello` (the stream opened, at `seq`), `ping`
-(nothing happened), `ui`, `data` or `review`; `session` is the screen or terminal that
-caused it."""
 obj LiveEvent {
     has seq: int = 0,
         kind: str = "",
@@ -512,10 +488,6 @@ obj LiveEvent {
         ts: float = 0.0;
 }
 
-"""One frame of a Copilot turn, by `t`: `chunk` and `thought` carry `text`; `tool_call`
-carries `tool`, `id` and `args` (the call's arguments as JSON text); `tool_result` carries
-`tool`, `id` and `result`; `card` carries `card`; `usage` carries `tokens`, `cost` and
-`requests`; `done` ends the turn."""
 obj CopilotFrame {
     has t: str = "",
         text: str = "",

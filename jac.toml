@@ -1,5 +1,6 @@
 [project]
 name = "diffwalker"
+exclude = ["docs/*"]
 
 # Deployment values for the apps archwire.jac declares. Each is baked into the
 # artifact and can be overridden by its environment variable (`neojac build`
@@ -48,11 +49,11 @@ api = "http://127.0.0.1:8000"
 licenses = "accepted"
 emulator = true
 
-[llm]
+[llm.anthropic]
 model = "claude-sonnet-5-5"
-
-[check.lint]
-select = ["style"]
+timeout = 180
+retries = 2
+rates = { claude-sonnet-5-5 = [2.0, 10.0, 0.1, 2.5], claude-opus-5-5 = [4.0, 20.0, 0.2, 5.0], claude-haiku-5-5 = [0.1, 0.5, 0.01, 0.125] }
 
 [npm.web]
 name = "diffwalker"

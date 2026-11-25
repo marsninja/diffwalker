@@ -1,3 +1,1 @@
-def:pub page -> JsxPage {
-    return <SignIn />;
-}
+def:pub page -> JsxPage;

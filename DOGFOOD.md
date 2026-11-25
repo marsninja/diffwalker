@@ -13,32 +13,26 @@ defects is in this file's git history.
 
 ## What has been run
 
-All four apps build. The web app, the CLI (in-process and `--live`) and the
-desktop app's two modes were run end to end against a scripted stand-in for
-the model API (`ANTHROPIC_BASE_URL`), driving the site in headless Chromium.
-The web app and the desktop app were stopped and started again on the data
-they kept.
-Against Anthropic's API (`claude-sonnet-5-5`): a full review from the server
-(8 stages, 9 findings on the demo's refunds branch, 62 seconds, $0.13), a
-review from the command line in its own process (its investigator chose what
-to read with `visit ... by llm`), and Copilot turns over the API and in the
-site's pane in headless Chromium, where it listed findings, opened the pull
-request and jumped to the line it was talking about.
+On the neojac this needs (tools as values, below), the command-line app
+checks, builds and runs in its own process, and the server's module
+(`core/api.jac`) checks. Against a scripted stand-in for the model API
+(`JAC_LLM_ADDRESS`): a review from the command line (8 stages, 6 model calls,
+its reviewer's three tools called in one round, each stage's cost by the
+rates in `jac.toml`), a review with a budget and a model `rates` does not
+name (stopped after its plan, saying why), and a Copilot turn with a round of
+six tool calls, four of them `@reads` tools and two that drive the screen.
+(That a round's `@reads` calls run at once and its others in order is held by
+neojac's own tests.)
 
-The phone app was built as an Android app (`dist/mobile/mobile.apk`) and run
-on an emulator with `neojac run mobile`, against the same server and model:
-sign-in, the inbox, a review started from the phone (13 model calls, 7
-findings, its eight stages arriving as they finished), insights, and a
-Copilot turn of six tool calls whose navigation moved the phone's tabs.
-Running it found a defect in neojac (a conditional expression's type, below)
-and two in the app's own layout, which had never been on a phone: the sign-in
-fields had no height, and the header and the tabs were under the phone's
-bars.
+The site, the desktop app and the phone app have not been built on it: see
+"Open". They were last built and run on neojac 0.3.2, against Anthropic's API
+and on an Android emulator; that record is in this file's history.
 
 ## Found and fixed in neojac
 
 Each row is something diffwalker needed that neojac refused, lacked or got
-wrong, and what neojac does now. The fixes are in neojac 0.3.1.
+wrong, and what neojac does now. The fixes of the first table are in neojac
+0.3.1; those of the second are in the first release after 0.5.1.
 
 | Found | What failed | What neojac does now | Where diffwalker uses it |
 | --- | --- | --- | --- |
@@ -79,9 +73,23 @@ wrong, and what neojac does now. The fixes are in neojac 0.3.1.
 | A crossing's type from another module of the endpoint's space | A class wired from a module placed in the endpoint's space, other than the endpoint's own, got E1182 asking for a wire the archwire already had, and a result class with a field of such a type was E1308 ("not sendable"). The caller sees both modules through their interfaces, and what one interface imports from another was never bound, so the signature's type did not resolve. | The types one interface module takes from another are bound, so such a type crosses, with the types of its fields. | Seen while the views were declared in `core/api.jac`. Every type that crosses is in `core/wire.jac` now, a module no space holds, which is the better place for them. |
 | A str-typed enum | `enum Severity: str` was E5090, so `Severity`, `Category` and `VerdictKind` were plain enums, and the engine read `.value` wherever it needed the string. | A member of `enum X: str` is the str it is: it prints as its value and is used where a str is, and it is still its enum's member, with a name, found by its value. | `Severity`, `Category` and `VerdictKind` in `core/review/agents.jac`; `ReviewRun` in `core/review/engine.jac` keeps a finding's severity and category, and writes the verdict, as they are. |
 
+### Since neojac 0.5.1
+
+| Found | What failed | What neojac does now | Where diffwalker uses it |
+| --- | --- | --- | --- |
+| Tools as values | A `by` call's tools had to be a list written in the call: a list kept in a `glob` compiled and gave the model no tools, so the Copilot's 29 tools were written twice, once to count them and once to give them. | A function or a method of an object given where a `ByTool` is taken is its tool, so a module keeps `glob TOOLS: list[ByTool] = [...]` and gives `tools=TOOLS`. An answerer holds its tools; a `ByCall` carries none. | `TOOLS` and `copilot` in `core/agent/copilot.jac` |
+| Which tools of a round run at once | `parallelize=True` ran every call of a round at once, and nothing said which tools write, so each action that writes took a lock of its own. | A round's calls run one at a time, in the order the model asked, but the consecutive calls of functions declared `@reads`, which the compiler holds to the declaration (E1643). `parallelize` is gone. | The Copilot's `read_file`, `search_code`, `blame` and `list_findings`; `Reviewer`'s three tools |
+| A method answered `by` | `by` on a method was E5090, so a review call was a function that took the `Reviewer`. | A method may be answered `by`, with its object among the arguments, and its own methods are its tools (`tools=[self.read_file]`). | `review_file`, `review_batch` and `cross_file_review` of `Reviewer` in `core/review/agents.jac` |
+| What a request cost | `ByUsage` counted tokens, and a program priced them, so `core/review/meter.jac` held a table of rates, and a model it did not list cost nothing: a review of one had no budget. | `ByUsage.cost` is what a request cost by the rates `jac.toml` gives the plugin (`[llm.anthropic] rates`), and `None` for a model it does not name. | `Meter.add`, `over_budget` and `budget_guard` in `core/review/meter.jac`; a budgeted review of an unpriced model is stopped |
+| A conversation cut at its turns | Keeping a long conversation short was the program's: three functions that knew where a turn begins. | `latest_turns(history, most)` gives the most recent whole turns that fit. | `_turn` in `core/api.jac` |
+| Why a call ended | A streamed call's last event said only that it was done. | `DONE` says why, a `ByEnd`: answered, stopped by the program, out of rounds, or cut at its length. | `_frame` in `core/api.jac` tells the pane |
+
 ## Open
 
-Nothing found so far is open.
+| Found | What fails | Where it shows in diffwalker |
+| --- | --- | --- |
+| The pages' sign-in | neojac's pages sign in through `sign_in()`, `sign_out()` and `signed_in()` and its hosted sign-in since 0.3.2. `jacLogin`, `jacSignup`, `jacIsLoggedIn`, `jacLogout` and the desktop app's `jacLocalUsers`, `jacUseLocalUser` and `jacLeaveLocalUser` are gone from `@jac/runtime` (E1145). This is diffwalker's to port, not a defect of neojac's. | `core/site/auth/SignIn.jac`, `core/site/live.jac`, `core/site/shell/AppShell.jac`, `core/site/desktop/desk.jac`, `core/native/DiffwalkerMobile.jac`: the `web`, `desktop` and `mobile` apps do not check |
+| `@reads` and an object read back out of a container the call made | The compiler takes a local as the call's own only when every value bound to it is made there (a display, a comprehension, a constructor call, a list joined or sliced). An object read back out of the call's own dict (`b = buckets[wk]; b.commits += 1`) is not, so a function that gathers into one is refused `@reads` (E1643) though it changes nothing outside itself. | `weekly`, `hotspots`, `contributors`, `ownership` and `languages` in `core/analytics.jac`. They also reach `core/git`'s `memo`, whose cache they do write, so the Copilot's reports are not `@reads` either way |
 
 One thing first listed here is the language as designed, and is now in neojac's
 documentation: `Number.isNaN(x)` is E1030 because `Number` is Jac's interface of

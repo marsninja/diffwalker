@@ -1,3 +1,1 @@
-def:pub page -> JsxPage {
-    return <Board />;
-}
+def:pub page -> JsxPage;

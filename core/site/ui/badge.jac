@@ -18,26 +18,6 @@ glob _badgeVariants: any = cva(
     },
 );
 
-def:pub Badge(**kwargs: any) -> JsxElement {
-    attrs: dict[str, any] = {**kwargs};
-    variant = kwargs.get("variant") or "default";
-    asChild = kwargs.get("asChild") or False;
+def:pub Badge(**kwargs: any) -> JsxElement;
 
-    variantsFn = _badgeVariants;
-    computedClass = cn(variantsFn.call(None, {"variant": variant}), kwargs.get("className"));
-
-    if asChild {
-        return <Slot.Root
-            {...kwargs}
-            data-slot="badge"
-            data-variant={variant}
-            className={computedClass}
-        />;
-    }
-
-    return <span {...attrs} data-slot="badge" data-variant={variant} className={computedClass} />;
-}
-
-def:pub badgeVariants -> any {
-    return _badgeVariants;
-}
+def:pub badgeVariants -> any;

@@ -1,3 +1,1 @@
-def:pub page -> JsxPage {
-    return <Built />;
-}
+def:pub page -> JsxPage;

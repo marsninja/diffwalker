@@ -41,159 +41,37 @@ glob VERDICT_LABEL: dict[str, str] = {
          "C",
      ];
 
-def:pub sev_order -> list[str] {
-    return ["critical", "high", "medium", "low", "info"];
-}
+def:pub sev_order -> list[str];
 
-def:pub now_s -> float {
-    return Date.now() / 1000;
-}
+def:pub now_s -> float;
 
-def:pub series_color(i: int) -> str {
-    return SERIES[i % 8] if i < 8 else "var(--ink-muted)";
-}
+def:pub series_color(i: int) -> str;
 
-def:pub sev_color(sev: str) -> str {
-    return SEV_COLOR.get(sev, "var(--ink-muted)");
-}
+def:pub sev_color(sev: str) -> str;
 
-def:pub risk_color(score: int) -> str {
-    if score >= 70 {
-        return "var(--status-critical)";
-    }
-    if score >= 45 {
-        return "var(--status-serious)";
-    }
-    if score >= 25 {
-        return "var(--status-warning)";
-    }
-    return "var(--status-good)";
-}
+def:pub risk_color(score: int) -> str;
 
-def:pub risk_label(score: int) -> str {
-    if score < 0 {
-        return "–";
-    }
-    if score >= 70 {
-        return "High";
-    }
-    if score >= 45 {
-        return "Elevated";
-    }
-    if score >= 25 {
-        return "Moderate";
-    }
-    return "Low";
-}
+def:pub risk_label(score: int) -> str;
 
-def:pub verdict_label(v: str) -> str {
-    return VERDICT_LABEL.get(v, v);
-}
+def:pub verdict_label(v: str) -> str;
 
-def:pub verdict_color(v: str) -> str {
-    if v == "approve" {
-        return "var(--status-good)";
-    }
-    if v == "request_changes" {
-        return "var(--status-critical)";
-    }
-    if v == "comment" {
-        return "var(--status-warning)";
-    }
-    return "var(--ink-muted)";
-}
+def:pub verdict_color(v: str) -> str;
+def:pub num_text(n: float) -> str;
 
-"""A number as text, a whole one with no fraction: `3`, never `3.0`."""
-def:pub num_text(n: float) -> str {
-    return str(int(n)) if int(n) == n else str(n);
-}
+def:pub fixed1(n: float) -> str;
 
-def:pub fixed1(n: float) -> str {
-    return num_text(round(n * 10) / 10);
-}
+def:pub fmt_num(n: float) -> str;
 
-def:pub fmt_num(n: float) -> str {
-    a = abs(n);
-    if a >= 1000000 {
-        return fixed1(n / 1000000) + "M";
-    }
-    if a >= 10000 {
-        return str(round(n / 1000)) + "k";
-    }
-    if a >= 1000 {
-        return fixed1(n / 1000) + "k";
-    }
-    if int(n) == n {
-        return str(int(n));
-    }
-    return fixed1(n);
-}
+def:pub fmt_bytes(n: int) -> str;
 
-def:pub fmt_bytes(n: int) -> str {
-    if n >= 1048576 {
-        return fixed1(n / 1048576) + " MB";
-    }
-    if n >= 1024 {
-        return str(round(n / 1024)) + " KB";
-    }
-    return str(n) + " B";
-}
+def:pub ago(ts: float) -> str;
 
-def:pub ago(ts: float) -> str {
-    if not ts {
-        return "";
-    }
-    secs = now_s() - ts;
-    if secs < 60 {
-        return "just now";
-    }
-    if secs < 3600 {
-        return str(int(secs / 60)) + "m ago";
-    }
-    if secs < 86400 {
-        return str(int(secs / 3600)) + "h ago";
-    }
-    if secs < 86400 * 45 {
-        return str(int(secs / 86400)) + "d ago";
-    }
-    return str(int(secs / 86400 / 30)) + "mo ago";
-}
+def:pub ago_iso(iso: str) -> str;
 
-def:pub ago_iso(iso: str) -> str {
-    if not iso {
-        return "";
-    }
-    t: float = Date.parse(iso);
-    if isNaN(t) or not t {
-        return iso[:10];
-    }
-    return ago(t / 1000);
-}
+def:pub base_name(path: str) -> str;
 
-def:pub base_name(path: str) -> str {
-    parts = path.split("/");
-    return parts[len(parts) - 1];
-}
+def:pub dir_name(path: str) -> str;
 
-def:pub dir_name(path: str) -> str {
-    parts = path.split("/");
-    if len(parts) <= 1 {
-        return "";
-    }
-    return "/".join(parts[:len(parts) - 1]);
-}
+def:pub short_path(path: str, keep: int = 2) -> str;
 
-def:pub short_path(path: str, keep: int = 2) -> str {
-    parts = path.split("/");
-    if len(parts) <= keep {
-        return path;
-    }
-    return "…/" + "/".join(parts[len(parts) - keep:]);
-}
-
-def:pub pct(part: float, whole: float) -> str {
-    if not whole {
-        return "0%";
-    }
-    return str(round(100 * part / whole)) + "%";
-}
+def:pub pct(part: float, whole: float) -> str;
