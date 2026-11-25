@@ -1,6 +1,6 @@
 """`repo`, `prs`, `hotspots` and `people`: what the analytics say of a repository, printed."""
 import json;
-import from stdjac.codec { encode }
+import from stdjac { encode }
 
 def bar(value: float, peak: float, width: int = 24) -> str {
     n = int(round(width * value / max(1.0, peak)));

@@ -1,17 +1,20 @@
 """The Copilot: one `by llm()` agent whose tools are ordinary typed functions.
 
-Tools run inside the streaming call, so they read and write the caller's graph directly;
-the model may batch them, and a round's calls run at once. The conversation is the
-caller-owned `history` list on the ChatThread node, a list of stdjac.llm's `Message`;
-`trim_history` cuts the oldest turns once it grows. `turn_guard` stops a turn on the
+Tools run inside the streaming call, so they read and write the caller's graph directly.
+The model may ask for several in one round: those declared `@reads` run at once, and
+every other runs alone, in the order it was asked for. Only a tool that changes nothing
+is declared so, which the compiler checks: the reports that go through `core.git`'s
+`memo` write its cache, so they are not. The conversation is the
+caller-owned `history` list on the ChatThread node, a list of stdjac's `Message`, of
+which a turn is given the latest turns that fit. `turn_guard` stops a turn on the
 user's Stop button or when it passes its budget.
 """
 import os;
 import json;
 import threading;
 import contextvars;
-import from stdjac.by { ByEvent }
-import from stdjac.llm { IterationAction, IterationContext, Message, PartKind, llm }
+import from jaclang.comptime { reads }
+import from stdjac { ByEvent, ByTool, IterationAction, IterationContext, Message }
 
 obj AgentCtx {
     has repo: str = "",
@@ -77,40 +80,10 @@ def turn_guard(ctx: IterationContext) -> IterationAction {
             return IterationAction.ABORT_WITH_SUMMARY;
         }
     }
-    if TURN_BUDGET > 0 and cost_of(ctx.usage) > TURN_BUDGET {
+    if TURN_BUDGET > 0 and over_budget(ctx.usage, TURN_BUDGET) {
         return IterationAction.ABORT_WITH_SUMMARY;
     }
     return IterationAction.CONTINUE;
-}
-
-"""Whether `message` begins a turn: what the user said, not a round's tool results."""
-def _opens_turn(message: Message) -> bool {
-    return message.role == "user"
-        and not any([p.kind == PartKind.TOOL_RESULT for p in message.parts]);
-}
-
-"""How much of the limit `message` takes: the characters of its parts."""
-def _size(message: Message) -> int {
-    return sum([len(p.text) + len(p.input) + len(p.name) + 16 for p in message.parts]);
-}
-
-"""The most recent turns of `history` that fit in `limit` characters: whole turns only,
-each from what the user said to the model's last word on it, and never fewer than the
-latest one."""
-def trim_history(history: list[Message], limit: int = HISTORY_CHARS) -> list[Message] {
-    cut = len(history);
-    used = 0;
-    for i in range(len(history) - 1, -1, -1) {
-        used += _size(history[i]);
-        if not _opens_turn(history[i]) {
-            continue;
-        }
-        if used > limit and cut < len(history) {
-            break;
-        }
-        cut = i;
-    }
-    return history[cut:];
 }
 
 def navigate(page: str) -> str {
@@ -247,6 +220,7 @@ def file_diff(pr_id: str, path: str) -> str {
 
 sem file_diff = "The unified diff of one file in a pull request, with new-file line numbers.";
 
+@reads
 def read_file(path: str, start_line: int, end_line: int) -> str {
     text = read_text(_repo(), path);
     if not text {
@@ -261,6 +235,7 @@ def read_file(path: str, start_line: int, end_line: int) -> str {
 
 sem read_file = "Read numbered lines of a file in the working tree (max 200 lines per call).";
 
+@reads
 def search_code(regex: str, path_glob: str) -> str {
     rows = grep(_repo(), regex, path_glob, 60);
     return "\n".join(rows) if rows else "(no matches)";
@@ -268,6 +243,7 @@ def search_code(regex: str, path_glob: str) -> str {
 
 sem search_code = "git grep the repository with an extended regex, optionally limited to a pathspec like '*.jac'.";
 
+@reads
 def blame(path: str, start_line: int, end_line: int) -> str {
     rows = blame_summary(_repo(), path, start_line, min(end_line, start_line + 60));
     return "\n".join(rows) or "(no blame)";
@@ -347,6 +323,7 @@ def _latest_review(pr_id: str) -> Review | None {
     return review_of(n, "done") if n else None;
 }
 
+@reads
 def list_findings(pr_id: str, status: str) -> str {
     rv = _latest_review(pr_id);
     if rv is None {
@@ -496,7 +473,7 @@ def publish_to_github(pr_id: str) -> str {
 
 sem publish_to_github = "Ask the user to confirm posting the review to the GitHub pull request. You can never post without their click.";
 
-glob TOOLS: list[any] = [
+glob TOOLS: list[ByTool] = [
          navigate,
          open_pull_request,
          focus_file,
@@ -532,42 +509,11 @@ glob TOOLS: list[any] = [
 """One turn, streamed: the model's words and its tool calls as they come. `history` is the
 conversation so far, which the call adds this turn to."""
 def copilot(request: str, ui_state: str, history: list[Message]) -> Iterator[ByEvent] by llm(
-    tools=[
-        navigate,
-        open_pull_request,
-        focus_file,
-        filter_findings,
-        show_insights,
-        notify,
-        switch_repository,
-        list_pull_requests,
-        pull_request_details,
-        file_diff,
-        read_file,
-        search_code,
-        blame,
-        repo_overview,
-        hotspot_report,
-        contributor_report,
-        ownership_report,
-        coupling_report,
-        activity_report,
-        list_findings,
-        review_pull_request,
-        post_comment,
-        update_finding,
-        reply_to_finding,
-        render_chart,
-        render_table,
-        render_diagram,
-        export_review,
-        publish_to_github,
-    ],
+    tools=TOOLS,
     conversation=history,
     system_prompt=SYSTEM,
     max_react_iterations=18,
     max_tokens=8000,
-    parallelize=True,
     on_iteration=turn_guard,
 );
 

@@ -3,10 +3,7 @@ user's browsers follow it."""
 import sys;
 import json;
 import random;
-import from stdjac.by { ByEventKind, ByUsage }
-import from stdjac.codec { encode }
-import from stdjac.llm { Message }
-import from stdjac.remote { RemoteError }
+import from stdjac { ByEventKind, ByUsage, Message, RemoteError, encode }
 
 """What a UI command was given, as JSON of the arguments it sets."""
 def short_args(args: UiArgs) -> str {
@@ -56,7 +53,7 @@ def run_ask_offline(repo: str, question: str) -> int {
         print(
             "\n"
                 + dim(
-                    f"\n{usage.requests} model calls · {tokens_of(usage)} tokens · ${round(cost_of(usage), 4)}",
+                    f"\n{usage.requests} model calls · {tokens_of(usage)} tokens · ${round(usage.cost or 0.0, 4)}",
                 ),
         );
     }

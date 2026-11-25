@@ -1,44 +1,14 @@
 """Token, cost, and latency for one review (or one Copilot turn), split by pipeline stage.
 
-`stdjac.llm` reports the usage of every model request on the thread that made it.
-`metered()` binds a meter and a stage to that thread first, so a request made in a
-`flow` task lands on the right review without passing anything through prompts.
+`on_usage` reports what every model request used on the thread that made it, its cost
+among it: the plugin prices a request by the rates jac.toml gives it (`[llm.anthropic]
+rates`). `metered()` binds a meter and a stage to that thread first, so a request made
+in a `flow` task lands on the right review without passing anything through prompts.
 """
 import os;
 import threading;
 import contextvars;
-import from stdjac.by { ByUsage }
-import from stdjac.llm { IterationAction, IterationContext, on_usage }
-
-"""What a model charges, in dollars per million tokens."""
-obj Rate {
-    has input: float,
-        output: float,
-        cache_read: float,
-        cache_write: float;
-}
-
-"""The models diffwalker prices. A request to any other model costs nothing here."""
-glob RATES: dict[str, Rate] = {
-    "claude-sonnet-5-5": Rate(input=2.0, output=10.0, cache_read=0.1, cache_write=2.5),
-    "claude-opus-5-5": Rate(input=4.0, output=20.0, cache_read=0.2, cache_write=5.0),
-    "claude-haiku-5-5": Rate(input=0.1, output=0.5, cache_read=0.01, cache_write=0.125),
-};
-
-"""What `usage` cost in dollars, by its model's rates."""
-def cost_of(usage: ByUsage) -> float {
-    rate = RATES.get(usage.model);
-    if rate is None {
-        return 0.0;
-    }
-    return (
-        usage.input_tokens * rate.input
-        + usage.output_tokens * rate.output
-        + usage.cache_read_tokens * rate.cache_read
-        + usage.cache_write_tokens * rate.cache_write
-    )
-        / 1000000.0;
-}
+import from stdjac { ByUsage, IterationAction, IterationContext, on_usage }
 
 """Every token of `usage`: read, written, and kept in or read from the cache."""
 def tokens_of(usage: ByUsage) -> int {
@@ -48,13 +18,25 @@ def tokens_of(usage: ByUsage) -> int {
         + usage.cache_write_tokens;
 }
 
+"""Why a budgeted review of an unpriced model is refused, said where it fails."""
+glob UNPRICED: str = "jac.toml gives no rate for the model that answered, so the review's budget cannot be kept: add the model to [llm.anthropic] rates, or set DIFFWALKER_REVIEW_BUDGET=0 to review without one";
+
+"""Whether `usage` has passed `budget` dollars. A request the plugin could not price
+counts as having passed it: a budget that cannot be kept is not one."""
+def over_budget(usage: ByUsage, budget: float) -> bool {
+    cost = usage.cost;
+    return usage.requests > 0 and (cost is None or cost > budget);
+}
+
 obj Meter {
     has budget: float = 0.0,
         lock: threading.Lock = threading.Lock(),
         rows: dict[str, StageCost] = {},
-        order: list[str] = [];
+        order: list[str] = [],
+        unpriced: bool = False;
 
     def add(stage: str, usage: ByUsage) {
+        cost = usage.cost;
         with self.lock {
             if stage not in self.rows {
                 self.rows[stage] = StageCost(stage=stage);
@@ -64,8 +46,19 @@ obj Meter {
             row.calls += usage.requests;
             row.tokens += tokens_of(usage);
             row.cached += usage.cache_read_tokens;
-            row.cost += cost_of(usage);
+            if cost is None {
+                self.unpriced = True;
+            } else {
+                row.cost += cost;
+            }
             row.ms += usage.seconds * 1000.0;
+        }
+    }
+
+    """Whether the meter has a budget it cannot keep: a request it took was not priced."""
+    def unbudgeted -> bool {
+        with self.lock {
+            return self.budget > 0 and self.unpriced;
         }
     }
 
@@ -113,13 +106,22 @@ obj Scope {
 glob _scope: contextvars.ContextVar[Scope | None] = contextvars.ContextVar(
          "diffwalker_meter", default=None
      ),
+     _answered: list[str] = [""],
      REVIEW_BUDGET: float = float(os.environ.get("DIFFWALKER_REVIEW_BUDGET", "2.0") or 2.0);
 
 def _record(usage: ByUsage) {
+    if usage.model {
+        _answered[0] = usage.model;
+    }
     scope = _scope.get();
     if scope is not None {
         scope.meter.add(scope.stage, usage);
     }
+}
+
+"""The model that answered the last request, and "" before any has."""
+def answered_by -> str {
+    return _answered[0];
 }
 
 """Run `work` with every model request inside it billed to `meter` under `stage`."""
@@ -147,7 +149,7 @@ def budget_guard(ctx: IterationContext) -> IterationAction {
     scope = _scope.get();
     if scope is not None {
         m = scope.meter;
-        if m.budget > 0 and m.total_cost() > m.budget {
+        if m.budget > 0 and (m.unbudgeted() or m.total_cost() > m.budget) {
             return IterationAction.ABORT_WITH_SUMMARY;
         }
     }

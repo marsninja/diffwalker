@@ -235,7 +235,7 @@ A review is a `Review` node with the pipeline's own graph under it:
 1. **Ingest.** `git diff base...head` (or the worktree, or `gh pr diff`) is parsed into `FileDiff` / `Hunk` / `DiffLine` objects, including quoted and space-containing paths. GitHub PRs are fetched into `refs/diffwalker/pr/<n>` so reviewers read the PR's actual code.
 2. **Triage.** A deterministic 0–100 risk per file from size, the repository's history hotspots, sensitive paths, new branching, missing tests, and word-bounded patterns for secrets, `eval`, `shell=True` and friends, plus `CodeRef` nodes for each file's callers, tests, and co-changing files.
 3. **Plan.** `plan_review(...) -> ReviewPlan by llm()` infers the change's intent and assigns lenses and priority per file.
-4. **Specialist lenses.** Every reviewable file is reviewed: priority-1 files on their own, the rest batched, each call a `flow` task. A review call is a `by llm()` function that takes a `Reviewer`, an `obj` whose fields are the prompt context and whose bound methods (`read_file`, `search_code`, `file_history`) are its tools: `tools=[r.read_file, r.search_code, r.file_history]`.
+4. **Specialist lenses.** Every reviewable file is reviewed: priority-1 files on their own, the rest batched, each call a `flow` task. A review call is a `by llm()` method of `Reviewer`, an `obj` whose fields are the prompt context and whose methods `read_file`, `search_code` and `file_history`, each declared `@reads`, are its tools: `tools=[self.read_file, self.search_code, self.file_history]`.
 5. **Cross-file.** One agent hunts for broken callers and API drift across the whole change.
 6. **Investigate.** For each flagged file an `Investigate` walker is spawned on its `FileChange`, and `visit [here --> [?:CodeRef]] by llm(select=(1, 3), intent=...)` lets the model choose which related code to read. Those excerpts become the verifier's evidence and are shown on each finding.
 7. **Verify.** Drafts are anchored to commentable diff lines and deduplicated in code, then verified per file, eight drafts to a call, each call a `flow` task, keyed by draft id.
@@ -243,7 +243,7 @@ A review is a `Review` node with the pipeline's own graph under it:
 
 A `flow` of a call evaluates its arguments where it is written and runs the call on one of the runtime's threads, so the reviewers' and the verifiers' model calls overlap, and the walker takes each one's drafts as it finishes. Tasks only call the model; the walker alone touches the graph.
 
-Typed outputs re-ask the model on a reply that does not fit. `stdjac.llm` reports the tokens of every request (`on_usage`); `core/review/meter.jac` bills them to their review and stage, prices them by its table of model rates, and tells a reviewer to wrap up once the review passes `DIFFWALKER_REVIEW_BUDGET`. Without a model key the deterministic stages still run and produce a verdict.
+Typed outputs re-ask the model on a reply that does not fit. `on_usage` reports the tokens of every request and what it cost, by the rates `[llm.anthropic]` gives in `jac.toml`; `core/review/meter.jac` bills them to their review and stage, and tells a reviewer to wrap up once the review passes `DIFFWALKER_REVIEW_BUDGET`. A review with a budget whose model `rates` does not name is stopped after its plan and says so, since the budget could not be kept. Without a model key the deterministic stages still run and produce a verdict.
 
 ## How the Copilot works
 
@@ -260,8 +260,8 @@ Typed outputs re-ask the model on a reply that does not fit. `stdjac.llm` report
 
 - The function returns `Iterator[ByEvent]`, so the call is streamed: the model's words, each tool call and its result, and what each request used arrive as events. The `copilot_stream` endpoint turns them into frames, and the pane reads them with `async for`.
 - Writes go through `core/actions.jac`, the same functions the buttons call, so Copilot can do anything you can.
-- The tool calls of one round run at once (`parallelize=True`), each on its own thread with the turn's context. An action that writes holds a lock, so two that touch one finding apply in turn.
-- The conversation is a typed `list[Message]` kept on the chat thread's node and passed as `conversation=history`. `trim_history` keeps its most recent whole turns once it passes 400,000 characters.
+- The tool calls of one round that only read (`@reads`: reading a file, searching, blame, listing findings) run at once, each on its own thread with the turn's context. Every other tool runs alone, in the order the model asked for it. The compiler holds `@reads` to what it says, so the reports that fill `core/git`'s cache are not declared. An action that writes holds a lock, so one from a button and one from the Copilot that touch one finding apply in turn.
+- The conversation is a typed `list[Message]` kept on the chat thread's node and passed as `conversation=history`. A turn is given `latest_turns` of it: its most recent whole turns that fit in 400,000 characters.
 - A turn stops, between rounds, when you press Stop or when it passes `DIFFWALKER_TURN_BUDGET`.
 - UI events are tagged with the user and the browser or CLI session. Each user's live stream carries only their own events, which is how the terminal can drive the same user's browser.
 - Publishing to GitHub asks for confirmation in the UI. The `gh` call runs after the endpoint has returned, and a toast says how it went.
@@ -316,8 +316,8 @@ Put secrets in `.env` (gitignored) or the environment.
 | Variable | Default | Purpose |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | | Key for Anthropic's Messages API, which `by llm()` calls |
-| `ANTHROPIC_BASE_URL` | Anthropic's API | A gateway to that API, used in its place |
-| `JAC_LLM_MODEL` | `[llm] model` in `jac.toml` (`claude-sonnet-5-5`) | The model `by llm()` asks. Anthropic models only. `core/review/meter.jac` holds the rates of the models it prices; a request to any other model shows as costing nothing |
+| `JAC_LLM_ADDRESS` | `address` under `[llm.anthropic]` (Anthropic's API) | A gateway to that API, used in its place |
+| `JAC_LLM_MODEL` | `model` under `[llm.anthropic]` in `jac.toml` (`claude-sonnet-5-5`) | The model `by llm()` asks. Anthropic models only. `rates` there says what each model charges; a request to a model it does not name has no cost, and a review with a budget is stopped |
 | `DIFFWALKER_REPO` | the repo containing diffwalker | Default repository for new accounts, and for the CLI when `--repo` is not given |
 | `DIFFWALKER_HOME` | the current directory | Where diffwalker's project is: its `.env`, and the source the "How it's built" page shows |
 | `DIFFWALKER_REVIEW_BUDGET` | `2.0` | Dollars a review may spend before its reviewers are told to wrap up |
@@ -373,7 +373,7 @@ neojac fmt <files>                    # format what you changed
 
 diffwalker is written in the Jac that [neojac](https://github.com/marsninja/neojac) defines and is built with nothing else. Building it found defects and gaps in neojac. They are fixed there, not worked around here, and [DOGFOOD.md](DOGFOOD.md) records each one, fixed or still open. The limits that show today:
 
-- `by llm()` is neojac's `stdjac.llm`, which calls Anthropic's Messages API. Only Anthropic models work.
+- `by llm()` asks the project's `llm` plugin, neojac's `anthropic`, which calls Anthropic's Messages API. Only Anthropic models work.
 - The desktop app's window exists for Linux only (GTK 3 with WebKitGTK 4.1).
 
 What has been run: all four apps build. The web app, the CLI (in-process and `--live`) and the desktop app's two modes were run end to end against a scripted stand-in for the model API (`ANTHROPIC_BASE_URL`), driving the site in headless Chromium, and the web and desktop apps were stopped and started again on the data they kept. Against Anthropic's API (`claude-sonnet-5-5`), a full review ran from the server and from the command line, and the Copilot answered and drove the site, over the API and in its pane in headless Chromium. The phone app was installed on an Android emulator by `neojac run mobile` and used there against the same server and model: sign-in, the inbox, a review started from the phone with its stages arriving, its findings, insights, and a Copilot turn whose tool calls moved the phone's tabs.

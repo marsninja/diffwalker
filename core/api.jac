@@ -12,8 +12,7 @@ import time;
 import logging;
 import threading;
 import subprocess;
-import from stdjac.by { ByEvent, ByEventKind, ByUsage }
-import from stdjac.graph { commit }
+import from stdjac { ByEnd, ByEvent, ByEventKind, ByUsage, commit, latest_turns }
 
 glob _env_loaded: int = load_env(),
      _warmed: set[str] = set(),
@@ -405,6 +404,13 @@ def:protect stop_turn(thread_id: str) -> bool {
     return True;
 }
 
+"""What the pane says of a turn that did not simply end with its answer."""
+glob ENDED: dict[ByEnd, str] = {
+    ByEnd.STOPPED: "Stopped: wrapping up with what I have.",
+    ByEnd.ROUNDS: "Out of steps for this turn: wrapping up with what I have.",
+    ByEnd.CUT: "The answer was cut at its length limit.",
+};
+
 """One event of the Copilot's stream as a frame for the Copilot pane, noted in `reply`.
 `spent` is what the turn's requests have used so far."""
 def _frame(ev: ByEvent, reply: ChatReply, spent: ByUsage) -> CopilotFrame | None {
@@ -430,10 +436,13 @@ def _frame(ev: ByEvent, reply: ChatReply, spent: ByUsage) -> CopilotFrame | None
     if ev.kind == ByEventKind.USAGE and usage is not None {
         spent.add(usage);
         reply.tokens = tokens_of(spent);
-        reply.cost = cost_of(spent);
+        reply.cost = spent.cost or 0.0;
         return CopilotFrame(
             t="usage", tokens=reply.tokens, cost=reply.cost, requests=spent.requests
         );
+    }
+    if ev.kind == ByEventKind.DONE and ev.ended in ENDED {
+        return CopilotFrame(t="thought", text=ENDED[ev.ended]);
     }
     return None;
 }
@@ -454,7 +463,7 @@ def _turn(
     }
     t.updated = now();
     commit();
-    history = trim_history(t.history);
+    history = latest_turns(t.history, HISTORY_CHARS);
     cards: list[Card] = [];
     set_agent(AgentCtx(repo=repo, session=session, thread=thread_id, user=current_user()), cards);
     clear_stop(thread_id);

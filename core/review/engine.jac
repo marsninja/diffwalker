@@ -16,9 +16,7 @@ committed stage by stage so other screens can follow along.
 import os;
 import queue;
 import time;
-import from stdjac.graph { commit }
-import from stdjac.llm { DEFAULT_MODEL, llm }
-import from stdjac.plan { setting_of }
+import from stdjac { commit }
 
 glob STAGES: list[list[str]] = [
          ["ingest", "Ingest diff"],
@@ -40,10 +38,12 @@ glob STAGES: list[list[str]] = [
      SKIP_KINDS: list[str] = ["generated"],
      ACTIVE: dict[str, str] = {};
 
-"""The model `by llm()` asks, chosen as `stdjac.llm` chooses it: `JAC_LLM_MODEL`, else
-jac.toml's `[llm] model`, else its default."""
+"""The model `by llm()` asks: the one that last answered, and before any has, the one
+`JAC_LLM_MODEL` names where the program runs. Which model that is otherwise is the
+plugin's to know (`[llm.anthropic]` in jac.toml), so until a request is made it is
+not named here."""
 def model_name -> str {
-    return os.environ.get("JAC_LLM_MODEL", setting_of("llm.model", DEFAULT_MODEL));
+    return answered_by() or os.environ.get("JAC_LLM_MODEL", "");
 }
 
 def model_label -> str {
@@ -110,7 +110,7 @@ def review_job(job: Job) -> BatchReview {
             job.meter,
             "review",
             lambda -> FileReview {
-                return review_file(job.reviewer, job.paths[0], job.lenses, job.patch, job.signals);
+                return job.reviewer.review_file(job.paths[0], job.lenses, job.patch, job.signals);
             },
         );
         return BatchReview(
@@ -120,7 +120,7 @@ def review_job(job: Job) -> BatchReview {
     return metered(
         job.meter,
         "review",
-        lambda -> BatchReview { return review_batch(job.reviewer, job.paths, job.patch); },
+        lambda -> BatchReview { return job.reviewer.review_batch(job.paths, job.patch); },
     );
 }
 
@@ -138,7 +138,7 @@ def cross_job(job: Job) -> list[DraftFinding] {
         job.meter,
         "cross",
         lambda -> list[DraftFinding] {
-            return cross_file_review(job.reviewer, job.patch, job.signals);
+            return job.reviewer.cross_file_review(job.patch, job.signals);
         },
     );
 }
@@ -508,6 +508,10 @@ walker:priv ReviewRun {
                     },
                 );
                 self.stage(rv, "plan", "done", self.plan.intent[:220]);
+                if self.meter.unbudgeted() {
+                    self.failed = UNPRICED;
+                    return;
+                }
             } except Exception as e {
                 self.stage(rv, "plan", "failed", "Planner unavailable: " + str(e)[:160]);
             }

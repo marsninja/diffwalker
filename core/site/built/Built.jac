@@ -90,12 +90,12 @@ glob PIPELINE_STEPS: list[PipelineStep] = [
              needle="def:protect copilot_stream",
          ),
          AgentStep(
-             text="copilot() has no body. by llm(tools=[...], conversation=history, system_prompt=SYSTEM, parallelize=True) builds the request from sem strings and the tool signatures, and its Iterator[ByEvent] result makes the call a streamed one.",
+             text="copilot() has no body. by llm(tools=TOOLS, conversation=history, system_prompt=SYSTEM) builds the request from sem strings and the tool signatures, and its Iterator[ByEvent] result makes the call a streamed one.",
              path="core/agent/copilot.jac",
              needle="def copilot(request",
          ),
          AgentStep(
-             text="The model answers with tool calls. The calls of one round run at once, each on its own thread with the turn's context; a tool that writes takes a lock in core/actions.jac.",
+             text="The model answers with tool calls. Those of one round that only read (@reads) run at once, each on its own thread with the turn's context; every other tool runs alone, in the order the model asked.",
              path="core/agent/copilot.jac",
              needle="def open_pull_request",
          ),
@@ -120,7 +120,7 @@ glob PIPELINE_STEPS: list[PipelineStep] = [
              needle="def set_status",
          ),
          AgentStep(
-             text="Between rounds, turn_guard stops the turn on your Stop button or when it passes its budget; stdjac.llm then asks the model to answer with no more tool calls.",
+             text="Between rounds, turn_guard stops the turn on your Stop button or when it passes its budget; llm() then asks the model to answer with no more tool calls, and the stream's last event says the turn was stopped.",
              path="core/agent/copilot.jac",
              needle="def turn_guard",
          ),
@@ -130,7 +130,7 @@ glob PIPELINE_STEPS: list[PipelineStep] = [
              needle="def _frame",
          ),
          AgentStep(
-             text="When the model stops calling tools the answer streams; the conversation, a list of Message, is kept on the ChatThread node, and trim_history keeps its most recent turns when it grows.",
+             text="When the model stops calling tools the answer streams; the conversation, a list of Message, is kept on the ChatThread node, and a turn is given latest_turns of it: the most recent whole turns that fit.",
              path="core/api.jac",
              needle="t.history = history;",
          ),
@@ -158,7 +158,7 @@ glob PIPELINE_STEPS: list[PipelineStep] = [
          ],
          [
              "on_usage metering",
-             "stdjac.llm reports the tokens of every request; a metered() scope bills them to their review and stage, and the UI shows tokens and dollars per stage.",
+             "on_usage reports the tokens and the cost of every request, priced by jac.toml's rates; a metered() scope bills them to their review and stage, and the UI shows tokens and dollars per stage.",
          ],
          [
              "mobUI",

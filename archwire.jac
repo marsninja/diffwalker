@@ -89,7 +89,7 @@ graph import {
         cli.commands.ask { llm_ready },
         cli.commands.review { llm_ready, run_review },
     ]
-    core.review.meter ++> cli.commands.ask { cost_of, tokens_of }
+    core.review.meter ++> cli.commands.ask { tokens_of }
     core.site.auth.SignIn ++> pages.login { SignIn }
     core.site.built.Built ++> pages.built { Built }
     core.site.pages.Board ++> pages.board { Board }
@@ -142,12 +142,12 @@ graph import core {
     ]
     agent.copilot ++> api {
         AgentCtx,
+        HISTORY_CHARS,
         TOOLS,
         clear_stop,
         copilot,
         request_stop,
         set_agent,
-        trim_history,
     }
     analytics ++> [
         agent.copilot {
@@ -317,8 +317,8 @@ graph import core {
         api { is_active, llm_ready, model_label, model_name, pr_running, run_review },
     ]
     review.meter ++> [
-        agent.copilot { cost_of },
-        api { cost_of, tokens_of },
+        agent.copilot { over_budget },
+        api { tokens_of },
     ]
     review.risk ++> [
         agent.copilot { triage },
@@ -450,17 +450,14 @@ graph import core.review {
         Reviewer,
         Verdict,
         VerdictKind,
-        cross_file_review,
         plan_review,
-        review_batch,
-        review_file,
         synthesize,
         verify_file,
     }
     context ++> engine { build_context, ref_excerpt }
     meter ++> [
         agents { budget_guard },
-        engine { Meter, REVIEW_BUDGET, bill_to, metered, unbill },
+        engine { Meter, REVIEW_BUDGET, UNPRICED, answered_by, bill_to, metered, unbill },
     ]
     risk ++> [
         context { file_kind },

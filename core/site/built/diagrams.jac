@@ -240,7 +240,7 @@ def:pub ArchitectureDiagram -> JsxElement {
             w={220}
             h={64}
             title="LLM provider"
-            sub="via stdjac.llm"
+            sub="via the llm plugin"
             tone="var(--series-7)"
         />
         <Box

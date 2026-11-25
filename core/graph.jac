@@ -11,7 +11,7 @@ chat threads, and the queries over it.
 import threading;
 import time;
 import uuid;
-import from stdjac.llm { Message }
+import from stdjac { Message }
 
 node Workspace {
     has active_repo: str = "",

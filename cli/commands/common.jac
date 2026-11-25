@@ -7,8 +7,7 @@ import urllib.request;
 import urllib.error;
 import getpass;
 import stat;
-import from stdjac.plan { remote_url }
-import from stdjac.remote { RemoteRejected }
+import from stdjac { RemoteRejected, remote_url }
 
 glob EXIT_OK: int = 0,
      EXIT_FAILURE: int = 1,

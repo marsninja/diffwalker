@@ -6,7 +6,7 @@ The server answers calls at once, so an action holds `_acting` while it reads an
 two that touch one finding apply in turn.
 """
 import threading;
-import from stdjac.graph { commit }
+import from stdjac { commit }
 
 glob _acting: threading.Lock = threading.Lock();
 

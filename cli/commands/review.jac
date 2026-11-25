@@ -2,7 +2,7 @@
 its live stream."""
 import json;
 import threading;
-import from stdjac.remote { RemoteError, RemoteRejected }
+import from stdjac { RemoteError, RemoteRejected }
 
 glob STAGE_GLYPH: dict[str, str] = {"running": "◌", "done": "✓", "failed": "✗", "skipped": "–"};
 
