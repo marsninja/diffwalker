@@ -64,7 +64,7 @@ Install neojac (Linux x86_64 or arm64, macOS on Apple Silicon):
 curl -fsSL https://github.com/jaseci-labs/neojac-releases/releases/latest/download/install.sh | bash
 ```
 
-diffwalker needs neojac 0.3.1 or later: the first release that has every feature [DOGFOOD.md](DOGFOOD.md) lists.
+diffwalker's shared core and its command-line app need a neojac whose tools are values (`ByTool`, `@reads`): neojac's `main` once that work is merged, and the first release after 0.5.1. The site, the desktop app and the phone app are still written for neojac 0.3.2's sign-in and do not build on a later one ([DOGFOOD.md](DOGFOOD.md), "Open").
 
 ```bash
 git clone https://github.com/marsninja/diffwalker
@@ -376,7 +376,7 @@ diffwalker is written in the Jac that [neojac](https://github.com/marsninja/neoj
 - `by llm()` asks the project's `llm` plugin, neojac's `anthropic`, which calls Anthropic's Messages API. Only Anthropic models work.
 - The desktop app's window exists for Linux only (GTK 3 with WebKitGTK 4.1).
 
-What has been run: all four apps build. The web app, the CLI (in-process and `--live`) and the desktop app's two modes were run end to end against a scripted stand-in for the model API (`ANTHROPIC_BASE_URL`), driving the site in headless Chromium, and the web and desktop apps were stopped and started again on the data they kept. Against Anthropic's API (`claude-sonnet-5-5`), a full review ran from the server and from the command line, and the Copilot answered and drove the site, over the API and in its pane in headless Chromium. The phone app was installed on an Android emulator by `neojac run mobile` and used there against the same server and model: sign-in, the inbox, a review started from the phone with its stages arriving, its findings, insights, and a Copilot turn whose tool calls moved the phone's tabs.
+What has been run on the neojac this needs: the command-line app checks, builds and runs in its own process, and the server's module (`core/api.jac`) checks. Against a scripted stand-in for the model API (`JAC_LLM_ADDRESS`), a review ran its eight stages from the command line, its reviewer reading the file, searching and reading history in one round, and the Copilot answered a question with a round of six tool calls, four of them `@reads` tools and two that drive the screen. The site, the desktop app and the phone app were last built and run on neojac 0.3.2 (the paragraph this replaces is in this file's history): since then neojac's pages sign in through `sign_in()` and its hosted sign-in, and diffwalker's sign-in screens, its desktop profiles and its phone app still call what came before.
 
 ## License
 
